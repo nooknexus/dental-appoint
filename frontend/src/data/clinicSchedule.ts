@@ -1,0 +1,42 @@
+import { useSyncExternalStore } from 'react';
+
+export type ClinicType = 'PMC' | 'SMC';
+
+const defaultClinicTypes: ClinicType[] = ['PMC', 'SMC'];
+const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api';
+let clinicTypesSnapshot = defaultClinicTypes;
+const subscribers = new Set<() => void>();
+
+function normalizeClinicTypes(value: unknown): ClinicType[] {
+  if (!Array.isArray(value)) return defaultClinicTypes;
+  const enabledTypes = value.filter((type): type is ClinicType => type === 'PMC' || type === 'SMC');
+  return enabledTypes.length ? defaultClinicTypes.filter((type) => enabledTypes.includes(type)) : defaultClinicTypes;
+}
+
+async function refreshClinicTypes() {
+  try {
+    const response = await fetch(`${apiBase}/clinic-config`);
+    clinicTypesSnapshot = response.ok ? normalizeClinicTypes((await response.json() as { clinicTypes?: unknown }).clinicTypes) : defaultClinicTypes;
+  } catch {
+    clinicTypesSnapshot = defaultClinicTypes;
+  }
+  subscribers.forEach((subscriber) => subscriber());
+}
+
+function subscribe(listener: () => void) {
+  subscribers.add(listener);
+  void refreshClinicTypes();
+  return () => subscribers.delete(listener);
+}
+
+function getSnapshot() { return clinicTypesSnapshot; }
+
+export function useClinicTypes() {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function clinicHoursLabel(clinicTypes: ClinicType[]) {
+  return clinicTypes.map((type) => type === 'PMC'
+    ? 'PMC · ในเวลา จันทร์–ศุกร์ 08:30–16:30 น.'
+    : 'SMC · นอกเวลา จันทร์–ศุกร์ 16:30–20:30 น. และเสาร์–อาทิตย์ 08:30–16:30 น.').join(' · ');
+}
