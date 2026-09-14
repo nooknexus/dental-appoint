@@ -1,7 +1,34 @@
 import mysql from 'mysql2/promise';
+import type { RowDataPacket } from 'mysql2';
 
 import { config } from '../config.js';
 import { pool } from '../db.js';
+
+// MariaDB รองรับ `ADD COLUMN IF NOT EXISTS` / `DROP INDEX IF EXISTS` แต่ MySQL แท้ (Oracle MySQL) ไม่รองรับ
+// เช็คผ่าน information_schema ก่อนเองแทน เพื่อให้ migrate รันได้ทั้งสองเอนจิน
+async function columnExists(table: string, column: string) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+    [table, column],
+  );
+  return rows.length > 0;
+}
+async function addColumnIfMissing(table: string, column: string, columnDdl: string) {
+  if (!(await columnExists(table, column))) await pool.query(`ALTER TABLE ${table} ADD COLUMN ${columnDdl}`);
+}
+async function indexExists(table: string, indexName: string) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+    [table, indexName],
+  );
+  return rows.length > 0;
+}
+async function addUniqueIndexIfMissing(table: string, indexName: string, columns: string) {
+  if (!(await indexExists(table, indexName))) await pool.query(`ALTER TABLE ${table} ADD UNIQUE INDEX ${indexName} (${columns})`);
+}
+async function dropIndexIfExists(table: string, indexName: string) {
+  if (await indexExists(table, indexName)) await pool.query(`ALTER TABLE ${table} DROP INDEX ${indexName}`);
+}
 
 const bootstrap = await mysql.createConnection({
   host: config.database.host,
@@ -25,8 +52,8 @@ await pool.query(`
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
 `);
-await pool.query("ALTER TABLE services ADD COLUMN IF NOT EXISTS category VARCHAR(120) NOT NULL DEFAULT 'งานทั่วไป' AFTER title");
-await pool.query("ALTER TABLE services ADD COLUMN IF NOT EXISTS price_label VARCHAR(100) NOT NULL DEFAULT 'โปรดสอบถามเจ้าหน้าที่' AFTER duration_minutes");
+await addColumnIfMissing('services', 'category', "category VARCHAR(120) NOT NULL DEFAULT 'งานทั่วไป' AFTER title");
+await addColumnIfMissing('services', 'price_label', "price_label VARCHAR(100) NOT NULL DEFAULT 'โปรดสอบถามเจ้าหน้าที่' AFTER duration_minutes");
 await pool.query('ALTER TABLE services MODIFY deposit_amount DECIMAL(10, 2) NOT NULL DEFAULT 400');
 await pool.query('UPDATE services SET deposit_amount = 400');
 await pool.query(`
@@ -37,7 +64,7 @@ await pool.query(`
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )
 `);
-await pool.query('ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS text_value TEXT NULL AFTER boolean_value');
+await addColumnIfMissing('system_settings', 'text_value', 'text_value TEXT NULL AFTER boolean_value');
 await pool.query('ALTER TABLE system_settings MODIFY text_value TEXT NULL');
 await pool.query("INSERT IGNORE INTO system_settings (setting_key, boolean_value) VALUES ('reservation_payment_enabled', TRUE)");
 await pool.query("INSERT IGNORE INTO system_settings (setting_key, boolean_value, text_value) VALUES ('booking_flow', TRUE, 'PROCEDURE_AND_DENTIST')");
@@ -59,8 +86,8 @@ await pool.query(`
     UNIQUE KEY dentists_queue_prefix_unique (queue_prefix)
   )
 `);
-await pool.query('ALTER TABLE dentists ADD COLUMN IF NOT EXISTS portrait_file_name VARCHAR(255) NULL AFTER queue_prefix');
-await pool.query("ALTER TABLE dentists ADD COLUMN IF NOT EXISTS professional_title VARCHAR(10) NOT NULL DEFAULT 'ทพ.' AFTER display_name");
+await addColumnIfMissing('dentists', 'portrait_file_name', 'portrait_file_name VARCHAR(255) NULL AFTER queue_prefix');
+await addColumnIfMissing('dentists', 'professional_title', "professional_title VARCHAR(10) NOT NULL DEFAULT 'ทพ.' AFTER display_name");
 await pool.query("UPDATE dentists SET professional_title = CASE WHEN display_name LIKE 'ทพญ.%' THEN 'ทพญ.' ELSE 'ทพ.' END");
 await pool.query(`
   CREATE TABLE IF NOT EXISTS dentist_services (
@@ -135,8 +162,8 @@ await pool.query(`CREATE TABLE IF NOT EXISTS patient_sessions (
   expires_at DATETIME NOT NULL,
   INDEX patient_sessions_expiry_idx (expires_at)
 )`);
-// MariaDB รองรับ ADD COLUMN IF NOT EXISTS — บอกว่า session นี้มาจาก provider ไหน ('moph' | 'thaid' | 'manual')
-await pool.query("ALTER TABLE patient_sessions ADD COLUMN IF NOT EXISTS provider VARCHAR(20) NOT NULL DEFAULT 'moph'");
+// บอกว่า session นี้มาจาก provider ไหน ('moph' | 'thaid' | 'manual')
+await addColumnIfMissing('patient_sessions', 'provider', "provider VARCHAR(20) NOT NULL DEFAULT 'moph'");
 await pool.query(`
   CREATE TABLE IF NOT EXISTS payment_slips (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -191,10 +218,10 @@ await pool.query(`
     UNIQUE KEY staff_users_identity_unique (provider_identity)
   )
 `);
-await pool.query("ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS provider_hash_cid VARCHAR(255) NULL AFTER provider_identity");
-await pool.query("ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS provider_title VARCHAR(80) NULL AFTER display_name");
-await pool.query("ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS provider_email VARCHAR(255) NULL AFTER provider_title");
-await pool.query("ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS provider_hcode VARCHAR(20) NULL AFTER department");
+await addColumnIfMissing('staff_users', 'provider_hash_cid', 'provider_hash_cid VARCHAR(255) NULL AFTER provider_identity');
+await addColumnIfMissing('staff_users', 'provider_title', 'provider_title VARCHAR(80) NULL AFTER display_name');
+await addColumnIfMissing('staff_users', 'provider_email', 'provider_email VARCHAR(255) NULL AFTER provider_title');
+await addColumnIfMissing('staff_users', 'provider_hcode', 'provider_hcode VARCHAR(20) NULL AFTER department');
 await pool.query("ALTER TABLE staff_users MODIFY approval_status ENUM('PENDING_APPROVAL', 'APPROVED', 'DISABLED') NOT NULL DEFAULT 'PENDING_APPROVAL'");
 await pool.query(`CREATE TABLE IF NOT EXISTS staff_sessions (
   id INT PRIMARY KEY AUTO_INCREMENT,
@@ -232,11 +259,11 @@ await pool.query(`CREATE TABLE IF NOT EXISTS notification_deliveries (
   CONSTRAINT notification_deliveries_appointment_fk FOREIGN KEY (appointment_id) REFERENCES appointments(id)
 )`);
 // แจ้งเตือนยกเลิกนัดผ่าน MOPH Alert แยกประเภทจากยืนยันนัด — นัดหมายเดียวมีได้ทั้งสองประเภท จึงเปลี่ยน unique key เป็นคู่
-await pool.query("ALTER TABLE notification_deliveries ADD COLUMN IF NOT EXISTS notification_type ENUM('CONFIRMATION', 'CANCELLATION') NOT NULL DEFAULT 'CONFIRMATION' AFTER appointment_id");
-await pool.query('ALTER TABLE notification_deliveries ADD COLUMN IF NOT EXISTS cancel_reason VARCHAR(500) NULL AFTER error_message');
+await addColumnIfMissing('notification_deliveries', 'notification_type', "notification_type ENUM('CONFIRMATION', 'CANCELLATION') NOT NULL DEFAULT 'CONFIRMATION' AFTER appointment_id");
+await addColumnIfMissing('notification_deliveries', 'cancel_reason', 'cancel_reason VARCHAR(500) NULL AFTER error_message');
 // ต้องสร้าง unique key ใหม่ก่อนลบตัวเก่า เพราะ FK ของ appointment_id ต้องมี index รองรับอยู่เสมอ
-await pool.query('ALTER TABLE notification_deliveries ADD UNIQUE INDEX IF NOT EXISTS notification_deliveries_appointment_type_unique (appointment_id, notification_type)');
-await pool.query('ALTER TABLE notification_deliveries DROP INDEX IF EXISTS notification_deliveries_appointment_unique');
+await addUniqueIndexIfMissing('notification_deliveries', 'notification_deliveries_appointment_type_unique', 'appointment_id, notification_type');
+await dropIndexIfExists('notification_deliveries', 'notification_deliveries_appointment_unique');
 
 await pool.query(`CREATE TABLE IF NOT EXISTS duty_rosters (
   id INT PRIMARY KEY AUTO_INCREMENT,
