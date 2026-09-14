@@ -30,8 +30,9 @@
 
 ข้อควรระวังเกี่ยวกับเอกสารเดิม:
 
-- `architecture.md` และ `summary.md` ล้าสมัยบางส่วน: ระบบจริงใช้ **MySQL** ไม่ใช่ SQLite,
-  API ไม่ได้ serve frontend static files และ frontend ปัจจุบันไม่ได้ใช้ Tailwind/Recharts
+- `architecture.md` และ `summary.md` ถูกลบออกแล้ว (เดิมเป็นเอกสารจากโปรเจกต์คนละเวอร์ชัน
+  ชื่อ "Phahol Appoint" ใช้ SQLite/Tailwind/Recharts ซึ่งขัดกับ codebase จริงทั้งหมด) —
+  ดู `README.md` สำหรับภาพรวมโปรเจกต์ปัจจุบันแทน
 - `PROVIDER.md` และ `THAID.md` เป็นเอกสารอ้างอิง integration จากบริบทอื่น
   ยังไม่ได้ implement flow จริงใน codebase นี้
 - `MOPHALERT.md` เป็นแนวทางประกอบ ส่วน implementation จริงอยู่ที่
@@ -677,19 +678,18 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
 6. **Frontend/Backend build แยกกัน**: API ไม่มี static SPA hosting/fallback route
 7. **Integration tests ใช้ DB ร่วม**: ยังไม่มี isolated ephemeral test database
 8. **Upload storage เป็น local disk**: ไม่เหมาะกับหลาย instance และยังไม่มี lifecycle cleanup
-9. **เอกสารเก่าขัดกับ code**: อย่าพึ่ง `architecture.md`/`summary.md` โดยไม่ตรวจ source
-10. **Generated output ซ้ำหลายจุด**: แก้เฉพาะ source แล้ว build ใหม่ ห้ามแก้ `dist` โดยตรง
-11. **Legacy frontend code ยังอยู่**: `frontend/src/services/appointment.ts`,
+9. **Generated output ซ้ำหลายจุด**: แก้เฉพาะ source แล้ว build ใหม่ ห้ามแก้ `dist` โดยตรง
+10. **Legacy frontend code ยังอยู่**: `frontend/src/services/appointment.ts`,
     `ServiceCard.tsx` และ type บางส่วนไม่ได้อยู่ใน booking flow ปัจจุบัน
-12. **ไม่มี Git metadata ใน workspace ปัจจุบัน**: คำสั่ง `git status/diff` ใช้ไม่ได้ใน directory นี้
-13. **ทะเบียนลงเวรยังไม่เชื่อมกับ `booking_slots`**: เป็นทะเบียนอ้างอิงอย่างเดียว การสร้างสล็อตจอง
+11. **ไม่มี Git metadata ใน workspace ปัจจุบัน**: คำสั่ง `git status/diff` ใช้ไม่ได้ใน directory นี้
+12. **ทะเบียนลงเวรยังไม่เชื่อมกับ `booking_slots`**: เป็นทะเบียนอ้างอิงอย่างเดียว การสร้างสล็อตจอง
     ยังต้องทำที่ `/staff/slots` ตามเดิม และยังไม่มีหน้าจอแก้วันลงเวรรายช่อง (ต้องอัปโหลดไฟล์ทับทั้งเดือน)
-14. **Parser ตารางเวรอิงรูปแบบไฟล์**: ต้องมีแถวหัวตารางที่เป็นเลข 1–31 และคอลัมน์ที่มีคำว่า "ชื่อ"
+13. **Parser ตารางเวรอิงรูปแบบไฟล์**: ต้องมีแถวหัวตารางที่เป็นเลข 1–31 และคอลัมน์ที่มีคำว่า "ชื่อ"
     ถ้าไฟล์เปลี่ยนรูปแบบให้แก้/เพิ่ม test ใน `api/src/domain/dutyRoster.test.ts` ก่อน
-15. **วันหยุดพึ่ง network ภายนอก**: ถ้าเซิร์ฟเวอร์ออกอินเทอร์เน็ตไม่ได้ ระบบจะใช้ static fallback
+14. **วันหยุดพึ่ง network ภายนอก**: ถ้าเซิร์ฟเวอร์ออกอินเทอร์เน็ตไม่ได้ ระบบจะใช้ static fallback
     ซึ่งมีข้อมูลถึงปี 2026 เท่านั้น ต้องอัปเดต `fallbackHolidays` ทุกต้นปี และ Google อาจประกาศ
     วันหยุดชดเชยช้ากว่าราชการ จึงควรให้เจ้าหน้าที่ตรวจก่อนใช้จริง
-16. **ไฟล์ต้นแบบกับ parser ต้องแก้คู่กัน**: `buildDutyRosterTemplate()` สร้างไฟล์ที่ `parseDutyRosterGrid()`
+15. **ไฟล์ต้นแบบกับ parser ต้องแก้คู่กัน**: `buildDutyRosterTemplate()` สร้างไฟล์ที่ `parseDutyRosterGrid()`
     ต้องอ่านกลับได้ มี test round-trip ครอบไว้ทั้งใน `dutyRoster.test.ts` และ `app.integration.test.ts`
 
 ## 16. แนวทางสำหรับ agent ที่เข้ามาทำงานต่อ
