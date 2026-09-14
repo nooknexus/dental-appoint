@@ -8,7 +8,8 @@ function required(name: string, fallback?: string) {
 
 export const config = {
   apiPort: Number(process.env.API_PORT ?? 3001),
-  frontendOrigin: required('FRONTEND_ORIGIN', 'http://localhost:3000'),
+  // ตัด trailing slash กัน redirect กลาย `origin//path` (React Router ไม่ match แล้วตกไปหน้า 404)
+  frontendOrigin: required('FRONTEND_ORIGIN', 'http://localhost:3000').replace(/\/+$/, ''),
   authMode: required('AUTH_MODE', 'mock'),
   mophAlertEncryptionKey: process.env.MOPH_ALERT_ENCRYPTION_KEY ?? '',
   // ล็อกอินผู้ป่วยด้วยหมอพร้อม (MOPH HealthID) — ค่า required ตรวจตอนเรียกใช้จริง เพื่อไม่ให้ tsx watch พังตอนบูต
