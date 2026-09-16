@@ -1,55 +1,15 @@
 import { CalendarDays, Clock3, HeartHandshake, UserRound } from 'lucide-react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { PageIntro } from '../components/PageIntro';
-import { teamMembers } from '../data/site';
-import type { TeamMember } from '../types';
+import { useTeamDirectory } from '../data/teamDirectory';
 
-type RegisteredDentist = { id: number; name: string; title: 'ทพ.' | 'ทพญ.'; specialty?: string; portraitUrl?: string | null };
 type WeeklyDutySchedule = { weekStart: string; weekEnd: string; dentists: { id: number; displayName: string; dates: string[] }[] };
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api';
-const imageBase = apiBase.replace(/\/api$/, '');
 const thaiWeekdayNames = ['วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์', 'วันอาทิตย์'];
 const thaiMonthsShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-
-// เฉพาะทันตแพทย์ที่ยังมีประวัติจริงเขียนไว้ (2 ท่านแรก) ใครนอกเหนือจากนี้แสดงข้อมูลกลางที่ตรงความจริง แทนการยืมประวัติของอีกคน
-const curatedDentistBios = new Map(teamMembers.filter((member) => member.role.includes('ทันตแพทย์')).map((member) => [member.name.trim(), member]));
-const supportTeamMembers = teamMembers.filter((member) => !member.role.includes('ทันตแพทย์'));
-
-function toTeamCard(dentist: RegisteredDentist): TeamMember {
-  const curated = curatedDentistBios.get(dentist.name.trim());
-  if (curated) return { ...curated, image: dentist.portraitUrl ? `${imageBase}${dentist.portraitUrl}` : curated.image, imageAlt: dentist.portraitUrl ? `ภาพ ${dentist.name}` : curated.imageAlt };
-  return { role: 'ทันตแพทย์ทั่วไป', name: dentist.name, credentials: dentist.specialty ?? 'ทันตกรรมทั่วไป', focus: '', specialties: [], availability: '', image: dentist.portraitUrl ? `${imageBase}${dentist.portraitUrl}` : '', imageAlt: dentist.portraitUrl ? `ภาพ ${dentist.name}` : '' };
-}
-
-async function loadRegisteredDentists(): Promise<RegisteredDentist[]> {
-  const response = await fetch(`${apiBase}/dentists`);
-  if (!response.ok) return [];
-  const data = await response.json();
-  return data?.dentists ?? [];
-}
-let dentistSnapshot: RegisteredDentist[] | null = null;
-let dentistLoadStarted = false;
-const dentistSubscribers = new Set<() => void>();
-function refreshPublicDentists() {
-  void loadRegisteredDentists().then((dentists) => {
-    dentistSnapshot = dentists;
-    dentistSubscribers.forEach((subscriber) => subscriber());
-  }).catch(() => undefined);
-}
-function subscribeToDentistRegistry(listener: () => void) {
-  dentistSubscribers.add(listener);
-  const refresh = () => refreshPublicDentists();
-  window.addEventListener('dentist-registry-updated', refresh);
-  if (!dentistLoadStarted) {
-    dentistLoadStarted = true;
-    refreshPublicDentists();
-  }
-  return () => { dentistSubscribers.delete(listener); window.removeEventListener('dentist-registry-updated', refresh); };
-}
-function getDentistSnapshot() { return dentistSnapshot; }
 
 /** วันที่จริงทั้ง 7 วันของสัปดาห์ (จันทร์–อาทิตย์) พร้อมป้ายวันแบบไทย เพื่อแสดงคู่กับตารางเวรจริง */
 function weekDates(weekStart: string) {
@@ -75,9 +35,7 @@ function useWeeklyDutySchedule() {
 }
 
 export function TeamPage() {
-  const registeredDentists = useSyncExternalStore(subscribeToDentistRegistry, getDentistSnapshot, getDentistSnapshot);
-  const dentistCards = registeredDentists === null ? [...curatedDentistBios.values()] : registeredDentists.map(toTeamCard);
-  const directory = [...dentistCards, ...supportTeamMembers];
+  const directory = useTeamDirectory();
   const schedule = useWeeklyDutySchedule();
   const days = schedule ? weekDates(schedule.weekStart) : [];
 

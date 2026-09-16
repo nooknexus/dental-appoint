@@ -287,6 +287,27 @@ describe('clinic SPA', () => {
     expect(within(profile!).queryByText('จันทร์–ศุกร์ 09:00–16:00 น.')).not.toBeInTheDocument();
   });
 
+  it('shows the same registered dentist directory on the home page team preview as on /team', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/dentists')) return Promise.resolve(new Response(JSON.stringify({ dentists: [{
+        id: 202,
+        name: 'ทพ.กิตติศักดิ์ รักษ์ฟัน',
+        title: 'ทพ.',
+        specialty: 'ทันตกรรมทั่วไป',
+        portraitUrl: null,
+      }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
+
+    render(<App initialEntries={['/']} />);
+    window.dispatchEvent(new Event('dentist-registry-updated'));
+
+    expect(await screen.findByRole('heading', { name: 'ทพ.กิตติศักดิ์ รักษ์ฟัน' })).toBeInTheDocument();
+    // ทันตแพทย์คนนี้ไม่มีประวัติ curated ไว้ ต้องไม่ยืมชื่อ/ประวัติของคนอื่นในข้อมูลตัวอย่างเดิมมาโชว์แทน
+    expect(screen.queryByRole('heading', { name: 'ทพญ. พิมพ์ใจ สุขสันต์' })).not.toBeInTheDocument();
+  });
+
   it('shows only active registry services on the public services route', async () => {
     stubActiveServices();
 
@@ -1085,6 +1106,17 @@ describe('clinic SPA', () => {
     const pmcHours = 'PMC · ในเวลา จันทร์–ศุกร์ 08:30–16:30 น.';
     await waitFor(() => expect(screen.queryByText(/SMC · นอกเวลา/)).not.toBeInTheDocument());
     expect(screen.getAllByText(pmcHours)).toHaveLength(2);
+  });
+
+  it('reflects the same clinic_types system setting in the home page hours table', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).endsWith('/clinic-config')) return Promise.resolve(new Response(JSON.stringify({ clinicTypes: ['PMC'] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
+    render(<App initialEntries={['/']} />);
+
+    expect(await screen.findByRole('row', { name: 'ในเวลา จันทร์–ศุกร์ 08:30–16:30 น.' })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /นอกเวลา/ })).not.toBeInTheDocument();
   });
 
   it('lets IT Staff configure MOPH Alert without exposing saved credentials', async () => {

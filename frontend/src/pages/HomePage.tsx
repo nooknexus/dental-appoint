@@ -14,7 +14,9 @@ import clinicExterior from '../assets/images/clinic-exterior-hero-v1.png';
 import desktopLogo from '../assets/logos/logo_web.png';
 import mobileLogo from '../assets/logos/logo_web700.png';
 import { PublicServiceCard } from '../components/PublicServiceCard';
-import { contactPlaceholders, faqs, teamMembers } from '../data/site';
+import { clinicHoursRows, useClinicTypes } from '../data/clinicSchedule';
+import { contactPlaceholders, faqs } from '../data/site';
+import { useTeamDirectory } from '../data/teamDirectory';
 import { usePublicServices } from '../services/publicServices';
 
 const trustHighlights = [
@@ -41,14 +43,11 @@ const carePrinciples = [
   'ร่วมวางแผนการดูแลตามความเหมาะสมของแต่ละคน',
 ];
 
-const serviceHours = [
-  { department: 'ในเวลา', days: 'จันทร์–ศุกร์', hours: '08:30–16:30 น.' },
-  { department: 'นอกเวลา', days: 'จันทร์–ศุกร์', hours: '16:30–20:30 น.' },
-  { department: 'นอกเวลา', days: 'เสาร์–อาทิตย์', hours: '08:30–16:30 น.' },
-];
-
 export function HomePage() {
   const serviceRegistry = usePublicServices();
+  const clinicTypes = useClinicTypes();
+  const serviceHours = clinicHoursRows(clinicTypes);
+  const teamDirectory = useTeamDirectory();
 
   return (
     <>
@@ -215,7 +214,7 @@ export function HomePage() {
             </Link>
           </div>
           <div className="team-grid team-grid--preview">
-            {teamMembers.map((member, index) => (
+            {teamDirectory.slice(0, 3).map((member, index) => (
               <article className="team-card" key={member.name}>
                 <div className="team-card__avatar" aria-hidden="true">{index + 1}</div>
                 <p className="team-card__role">{member.role}</p>
