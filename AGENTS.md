@@ -1,7 +1,7 @@
 # Project Guide for AI Agents
 
 > เอกสารนี้เป็นจุดเริ่มต้นสำหรับ AI agent หรือผู้พัฒนาที่เข้ามาทำงานต่อในโปรเจกต์
-> ตรวจสอบจาก source code ปัจจุบันเมื่อ 11 กันยายน 2026 และให้ถือว่า source code,
+> ตรวจสอบจาก source code ปัจจุบันเมื่อ 16 กันยายน 2026 และให้ถือว่า source code,
 > `package.json`, `.env.example` และ test เป็น source of truth หากข้อมูลขัดกับเอกสารเก่า
 
 ## 1. สรุปโปรเจกต์
@@ -9,15 +9,15 @@
 โปรเจกต์นี้คือเว็บไซต์และระบบจองคิวของ **สาสุข พรีเมียม Dental Clinic** ประกอบด้วย:
 
 - เว็บไซต์สาธารณะ: หน้าแรก บริการ ทีม เกี่ยวกับคลินิก และติดต่อ
-- ฝั่งผู้รับบริการ: login ด้วยหมอพร้อม (HealthID) หรือกรอกข้อมูลเอง, เมนูผู้ป่วย, จองคิว, ดูรายการนัด และแบบประเมิน
+- ฝั่งผู้รับบริการ: login ด้วยหมอพร้อม (HealthID), ThaiID หรือกรอกข้อมูลเอง, เมนูผู้ป่วย, จองคิว, ดูรายการนัด และแบบประเมิน
 - ฝั่งเจ้าหน้าที่: จัดการคิว สล็อต หัตถการ ทันตแพทย์ ผู้ใช้ ผู้ป่วย และค่าระบบ
 - API: Express + TypeScript เชื่อม MySQL
 - ระบบชำระเงิน: QR และการตรวจสลิปแบบ mock
 - ระบบแจ้งเตือน: เชื่อม MOPH Alert v3.1 หลังเจ้าหน้าที่ยืนยันนัด
 
-ระบบปัจจุบันเป็น prototype/demo ที่มี backend จริงและฐานข้อมูลจริง — ล็อกอินผู้ป่วยด้วยหมอพร้อม
-(HealthID) และฟอร์มกรอกเองใช้งานได้จริง แต่ **staff authentication**, payment และบาง integration
-ยังไม่พร้อมใช้ production (ดูหัวข้อ 8 และ 15)
+ระบบปัจจุบันมี backend และฐานข้อมูลจริง — ผู้ป่วยล็อกอินด้วย HealthID, ThaiID หรือฟอร์มกรอกเองได้;
+เจ้าหน้าที่รองรับ ProviderID SSO พร้อม pending approval และ server-side session. ส่วน payment ยังเป็น mock
+และ production ต้องตั้งค่า credentials, HTTPS, backup และการทดสอบ integration ภายนอกให้ครบ (ดูหัวข้อ 8 และ 15)
 
 ## 2. Source of truth และเอกสารเดิม
 
@@ -159,13 +159,16 @@ Backend (`api/.env`):
 | `DB_NAME` | `clinic_appoint_db` | database name |
 | `DB_USER` | `root` | database user |
 | `DB_PASSWORD` | `root` | database password |
-| `AUTH_MODE` | `mock` | ปัจจุบัน staff API รองรับเฉพาะ `mock` |
+| `AUTH_MODE` | `mock` | `mock` สำหรับพัฒนา หรือ `provider` สำหรับ ProviderID SSO ของเจ้าหน้าที่ |
 | `PATIENT_SSO_ENABLED` | `false` | เปิดล็อกอินผู้ป่วยด้วยหมอพร้อม (HealthID OAuth2) — ต้องกรอกค่าด้านล่างให้ครบ |
 | `MOPH_CLIENT_ID` / `MOPH_CLIENT_SECRET` | — | credentials จากการลงทะเบียน moph.id.th |
 | `MOPH_REDIRECT_URI` | — | callback ที่ลงทะเบียนไว้ ต้องตรง byte-to-byte (HTTPS) เช่น `https://domain/api/auth/patient/moph/callback` |
 | `MOPH_LOGIN_SCOPE` | `ProviderID` | ค่า scope ตามที่ลงทะเบียน — ยืนยันกับหน้าลงทะเบียน/ซัพพอร์ตก่อนใช้จริง |
 | `MIN_PATIENT_IAL` | `1.3` | ระดับ IAL ขั้นต่ำที่ยอมให้ล็อกอิน (1.3 = Dipchip) |
 | `PATIENT_SESSION_HOURS` | `12` | อายุ session ผู้ป่วย (ชั่วโมง) |
+| `PROVIDER_CLIENT_ID` / `PROVIDER_CLIENT_SECRET` | — | credentials สำหรับแลก HealthID token เป็น ProviderID token เมื่อ `AUTH_MODE=provider` |
+| `PROVIDER_EXCHANGE_ENDPOINT` / `PROVIDER_USERINFO_ENDPOINT` | `https://provider.id.th/api/v1/services/token` / `.../profile` | endpoint Step 2 และ Step 3 ของ ProviderID |
+| `STAFF_SESSION_HOURS` | `8` | อายุ session ของเจ้าหน้าที่ (ชั่วโมง) |
 | `COOKIE_SECURE` | `false` | ตั้ง `true` เมื่อ serve ผ่าน HTTPS จริง เพื่อใส่แฟล็ก Secure ให้ cookie |
 | `THAID_SSO_ENABLED` | `false` | เปิดล็อกอินผู้ป่วยด้วย ThaiID (DOPA OIDC) — session กลางเดียวกับหมอพร้อม |
 | `THAID_WELL_KNOWN_URL` | `https://imauth.bora.dopa.go.th/.well-known/openid-configuration` | OIDC discovery ของ ThaiID (path นี้**ไม่มี** /api/v2 นำหน้า — ตรวจกับ DOPA จริง 2026-09-12, ต่างจาก THAID.md ที่ระบุผิด) |
@@ -210,12 +213,12 @@ Route map หลักอยู่ใน `frontend/src/App.tsx`
 
 | Route | Page | หน้าที่ |
 |---|---|---|
-| `/` | `HomePage` | หน้าแรกและข้อมูลคลินิก |
+| `/` | `HomePage` | หน้าแรกและข้อมูลคลินิก; เวลาให้บริการใช้ `clinic_types` ชุดเดียวกับ `/contact` และ footer |
 | `/services` | `ServicesPage` | รายการบริการ active จาก API |
 | `/services/:id` | `ServiceDetailPage` | รายละเอียด static service เดิม |
 | `/team` | `TeamPage` | ทีม static + ทันตแพทย์จาก API |
 | `/about` | `AboutPage` | ข้อมูลคลินิก |
-| `/contact` | `ContactPage` | ติดต่อและแผนที่ |
+| `/contact` | `ContactPage` | ติดต่อ แผนที่ และเวลาให้บริการตาม `clinic_types` |
 | `/appointment` | `AppointmentPage` | login ผู้ป่วย: หมอพร้อม (MOPH HealthID OAuth2), ThaiD (DOPA OIDC), ฟอร์มกรอกเอง — ทั้ง 3 ทางเป็นของจริงแล้ว (ดูหัวข้อ 8) |
 | `/patient/menu` | `PatientMenuPage` | เมนูผู้รับบริการ |
 | `/booking/service` | `BookingPage` | booking wizard |
@@ -229,13 +232,13 @@ Route map หลักอยู่ใน `frontend/src/App.tsx`
 | `/staff/role-select` | ทุก role แบบ mock | เลือกบทบาท |
 | `/staff/queue` | `CLINIC_STAFF` | ปฏิบัติงานประจำวัน: เพิ่มคิว walk-in, ยกเลิกคิว, ดูผู้จองต่อสล็อต, มาร์คมาตามนัด |
 | `/staff/appointments` | `CLINIC_STAFF` | ตรวจสลิป/ยืนยันคิว |
-| `/staff/slots` | `CLINIC_STAFF` | สร้างสล็อต 30 นาที |
+| `/staff/slots` | `CLINIC_STAFF` | สร้างและลบสล็อตที่ยังไม่มีการจอง; เลือกช่วงเวลาและความยาวสล็อตตามเวลาเปิดบริการ |
 | `/staff/services` | `IT_STAFF` | เปิด/ปิดหัตถการ |
 | `/staff/system-settings` | `IT_STAFF` | payment, booking flow, MOPH Alert |
 | `/staff/users` | `IT_STAFF` | role และสถานะ staff |
-| `/staff/dentists` | `IT_STAFF`, `CLINIC_STAFF` | ทะเบียนทันตแพทย์/รูป/หัตถการ |
-| `/staff/duty-roster` | `IT_STAFF`, `CLINIC_STAFF` | ทะเบียนลงเวร: อัปโหลด Excel, ดูตารางรายเดือน และลิงก์ไปตารางแพทย์วังทองบน Google Sheets |
-| `/staff/patient-registry` | `IT_STAFF`, `CLINIC_STAFF` | ค้นหาและ block ผู้ป่วย |
+| `/staff/dentists` | `IT_STAFF` | ทะเบียนทันตแพทย์/รูป/สาขาเฉพาะทาง/หัตถการ |
+| `/staff/duty-roster` | `CLINIC_STAFF` | ทะเบียนลงเวร: อัปโหลด Excel, ดูตารางรายเดือน และลิงก์ไปตารางแพทย์วังทองบน Google Sheets |
+| `/staff/patient-registry` | `CLINIC_STAFF` | ค้นหาและ block ผู้ป่วย |
 | `/staff/dashboard` | `MANAGER` | ภาพรวมการจอง: สรุปยอด, นัดหมายวันนี้, แนวโน้ม 7 วัน, หัตถการยอดนิยม, ตารางเวรสัปดาห์นี้ |
 | `/staff/reports/appointments` | `IT_STAFF`, `MANAGER` | รายงาน/ค้นหานัดหมายทั้งหมดแบบ read-only: กรองช่วงวันที่, ทันตแพทย์, สถานะ และคำค้น (ชื่อ/เบอร์/เลขคิว/รหัสอ้างอิง) |
 | `/staff/reports/visits` | `IT_STAFF`, `MANAGER` | รายงานการเข้าพบ/No-show: สรุปรวม, แยกรายเดือน และแยกตามทันตแพทย์ (ไม่รวมนัดที่ยกเลิก) |
@@ -244,7 +247,7 @@ Route map หลักอยู่ใน `frontend/src/App.tsx`
 | `/staff/reports/notifications` | `IT_STAFF`, `MANAGER` | ภาพรวม MOPH Alert แบบอ่านอย่างเดียว: อัตราส่งสำเร็จ + รายการล่าสุด 20 รายการ |
 | `/staff/reports/peak-hours` | `IT_STAFF`, `MANAGER` | ช่วงเวลานิยม: นัดแยกตามวันสัปดาห์/ชั่วโมง + heatmap วัน × ชั่วโมง |
 
-Frontend ใช้ `sessionStorage` keys ต่อไปนี้:
+เมื่อ `AUTH_MODE=mock` frontend ใช้ `sessionStorage` keys ต่อไปนี้ (ไม่ใช้เป็น authorization ในโหมด `provider`):
 
 - `clinic_mock_role`
 - `clinic_mock_patient`
@@ -275,9 +278,6 @@ Frontend ใช้ `sessionStorage` keys ต่อไปนี้:
   ทั้งหมอพร้อมและ ThaiID ใช้ session กลางเดียวกัน (`patient_sessions` + cookie `clinic_patient_session`,
   คอลัมน์ `provider` บอกที่มา 'moph'/'thaid') — ปิด flag ตัวไหน ปุ่มของ provider นั้นจะ**หายไปเลย**
   (ไม่มีปุ่ม mock สำรองแล้ว) เหลือ "ฟอร์มกรอกเอง" เป็นทางเข้าสำรองทางเดียว
-- **สถานะปัจจุบัน (`.env` ที่ dev ใช้อยู่): `PATIENT_SSO_ENABLED=true` และ `THAID_SSO_ENABLED=true` ทั้งคู่**
-  — ล็อกอินฝั่งประชาชนทั้ง 3 ทาง (หมอพร้อม, ThaiD, ฟอร์มกรอกเอง) เป็นของจริง/พร้อมใช้งานแล้ว
-  มีแค่ฝั่งเจ้าหน้าที่ (จนท.) เท่านั้นที่ยังเป็น mock (ดูข้อถัดไป)
 - **บั๊กที่แก้แล้ว (สำคัญ อย่าทำพลาดซ้ำ)** สองตัวที่เคยทำให้ผู้ป่วยเห็นคิวของคนอื่น:
   1. `sessionCookieOptions()` เคยส่ง `maxAge` เป็น "วินาที" แต่ express นับเป็น **มิลลิวินาที**
      (`patientSessionHours * 3_600` → cookie อายุจริง **43 วินาที** ทั้งที่แถวใน `patient_sessions` อยู่ 12 ชม.)
@@ -287,10 +287,16 @@ Frontend ใช้ `sessionStorage` keys ต่อไปนี้:
      ทำให้คนที่ session หมดอายุเห็นนัดหมายของ identity นั้นแทน — ตอนนี้ **ลบ fallback ทิ้งแล้ว ตอบ 401**
   3. `AppointmentPage.tsx` เคยเรนเดอร์ปุ่ม mock (identity `MOCK-PATIENT-001`) ระหว่างที่ `auth.loaded`
      ยังเป็น false — ตอนนี้โชว์ loading state แทน และปุ่ม mock ถูกลบออกทั้งหมดแล้ว
-- เจ้าหน้าที่: frontend เลือก role เอง แล้วส่ง header `x-mock-role` (**ยังเป็น mock ทุกโหมด** —
-  ProviderID SSO ฝั่งเจ้าหน้าที่ยังไม่ถูกต่อ ให้ steps 4–6 ของ ProviderID ใน `mophHealthId.ts` เป็นงานเฟสถัดไป)
-- backend ตรวจ role ด้วย `requireMockStaff()` เฉพาะ staff endpoints
-- ถ้า `AUTH_MODE` ไม่ใช่ `mock`, staff endpoints ตอบ `501` เพราะ SSO จริงยังไม่ถูกต่อ
+- เจ้าหน้าที่รองรับ 2 โหมด: `mock` ใช้ role selector + header `x-mock-role` สำหรับพัฒนา/test;
+  `provider` ใช้ HealthID callback เดียวกับผู้ป่วยแล้วแลก ProviderID token (Step 2) และอ่าน Provider profile
+  (Step 3) โดย token ใช้เฉพาะ callback และไม่ถูกเก็บในฐานข้อมูลหรือ browser
+- ในโหมด `provider` ผู้ใช้ใหม่ถูกสร้างเป็น `CLINIC_STAFF` + `PENDING_APPROVAL`; session ที่สถานะดังกล่าว
+  เข้าได้เฉพาะหน้า `/staff/pending-approval` จน IT Staff อนุมัติและกำหนด role แล้ว ผู้ใช้ `DISABLED`
+  จะไม่ออก session ใหม่ ส่วน role/approval status ถูกอ่านจากฐานข้อมูลทุก request เพื่อให้เปลี่ยนสิทธิ์มีผลทันที
+- `staff_sessions` เก็บเฉพาะ hash ของ session และ CSRF; cookie ของ session เป็น HttpOnly/SameSite และคำขอ
+  mutation ของ staff ในโหมด `provider` ต้องมี CSRF token ที่ได้จาก `GET /api/auth/staff/csrf`.
+  `requireStaff()` เป็น authorization กลางของ staff routes และตอบ `AUTH_REQUIRED`, `PENDING_APPROVAL`,
+  `ACCOUNT_DISABLED`, `ROLE_FORBIDDEN` หรือ `CSRF_INVALID` ตามกรณี
 - cookie ทำงานบนฐาน same-origin: dev ใช้ Vite proxy `/api` → `:3001` (`VITE_API_BASE_URL` default `/api`)
   production ต้อง serve frontend และ API บน origin เดียวกันผ่าน reverse proxy
 **หมายเหตุ**: `/staff/dashboard` เคยเป็น route redirect เก่าที่ชี้ไป `/staff/appointments`
@@ -302,16 +308,12 @@ Frontend ใช้ `sessionStorage` keys ต่อไปนี้:
   เท่านั้น** (`getPatientSession()`) ไม่รับ `identity`/`patientIdentity` จาก query หรือ body อีกแล้ว
   และไม่มี fallback เป็น identity สมมติ — ไม่มี session = ตอบ `401 กรุณาเข้าสู่ระบบก่อนใช้งาน`
   ทุกทางล็อกอิน (หมอพร้อม/ThaiD/ฟอร์มกรอกเอง) ออก session แบบเดียวกันหมด จึงมีทางเข้าเดียวที่ต้องดูแล
-- route guard ฝั่ง frontend มีไว้จัด UX เท่านั้น ผู้โจมตีแก้ session/header เองได้
+- route guard ฝั่ง frontend มีไว้จัด UX; แต่ใน `provider` mode backend อาศัย server session + role จากฐานข้อมูล
+  ไม่เชื่อ header หรือ `sessionStorage`. `PROVIDER.md` และ `THAID.md` เป็นเอกสารอ้างอิง protocol;
+  implementation อยู่ที่ `api/src/services/providerId.ts`, `staffSession.ts`, `mophHealthId.ts` และ `thaidAuth.ts`
 
-เอกสาร `PROVIDER.md` และ `THAID.md` ใช้เป็นข้อมูลอ้างอิงได้ แต่ห้ามถือว่า integration
-เหล่านั้นมีอยู่ในระบบแล้ว (ส่วน HealthID สำหรับผู้ป่วย implement แล้วตามด้านบน)
-
-**⚠️ UI ไม่แสดงคำเตือน "mock/สาธิต/ตัวอย่าง" ต่อผู้ใช้แล้ว** (ลบออกตามคำขอเมื่อระบบใกล้ใช้งานจริง)
-**แต่กลไก staff auth และการชำระเงินยังเป็น mock เหมือนเดิม** — ห้ามใช้ "ไม่มีข้อความเตือนบนหน้าเว็บ"
-เป็นหลักฐานว่าระบบยืนยันตัวตนหรือการชำระเงินเป็นของจริงแล้ว ต้องตรวจโค้ดจริง (`x-mock-role`, `dev-auth`,
-`services/mophAlert.ts`, mock QR ใน `BookingPage.tsx`) ก่อนสรุปเสมอ ล็อกอินผู้ป่วยด้วยหมอพร้อมเป็น
-flow จริงเมื่อเปิด flag (ดูด้านบน) แต่ฝั่ง staff ต้องทำตามข้อ 2 ในหัวข้อ 15 ก่อนใช้งานจริง
+**⚠️ Payment ยังคงเป็น mock**: QR และการตรวจสลิปไม่มี payment callback/reconciliation จริง แม้ MOPH Alert,
+patient SSO และ ProviderID staff SSO จะมี implementation แล้วก็ตาม
 
 ## 9. Booking behavior
 
@@ -351,9 +353,10 @@ Reference code มีรูปแบบประมาณ `APT-<timestamp base36
 
 ### Cancel appointment และตารางเวรวัน (/staff/queue)
 
-`POST /api/staff/appointments/:id/cancel` ตั้ง `appointment_status = 'CANCELLED'` และลด
+`POST /api/staff/appointments/:id/cancel` ต้องระบุเหตุผล, ตั้ง `appointment_status = 'CANCELLED'` และลด
 `booking_slots.booked_count` (มี `GREATEST(booked_count - 1, 0)` กันติดลบ) พร้อม lock ด้วย `FOR UPDATE`
-กันสอง staff กดยกเลิกพร้อมกัน — เป็น endpoint เดียวในระบบที่ทำให้ `booked_count` ลดลง ดังนั้น
+กันสอง staff กดยกเลิกพร้อมกัน จากนั้นสร้าง MOPH Alert delivery ประเภท `CANCELLATION` (เมื่อเปิดใช้)
+โดยนำเหตุผลไปแสดงใน Flex message — เป็น endpoint เดียวในระบบที่ทำให้ `booked_count` ลดลง ดังนั้น
 `capacity - bookedCount` ที่คืนจาก `GET /api/staff/day-queue`/`GET /api/staff/slots` ถือเป็น
 "ที่นั่งว่างจริง" ได้เลยโดยไม่ต้องคำนวณแยกจาก appointment แต่ละแถวอีกที
 
@@ -429,12 +432,14 @@ API ทั้งหมดอยู่ใน `api/src/app.ts`
 - `POST /api/staff/appointments/walk-in` — เจ้าหน้าที่เพิ่มคิวเข้าไปในสล็อตที่มีอยู่ ยืนยันคิวทันที (`CONFIRMED`/`NOT_REQUIRED`)
   โดยไม่เช็ค `patient_registry.access_status === 'BLOCKED'` (บล็อกมีไว้กันการจองออนไลน์ ไม่ใช่การมาที่คลินิกเอง)
   บังคับกรอกเลขบัตรประชาชน 13 หลักเสมอ (ทั้งฝั่ง client และ `walkInInput` schema) ไม่มี identity สังเคราะห์ `WALKIN-...` อีกแล้ว
-- `POST /api/staff/appointments/:id/cancel` — ตั้งสถานะเป็น `CANCELLED` และลด `booking_slots.booked_count` คืนที่นั่งให้สล็อต
+- `POST /api/staff/appointments/:id/cancel` — บังคับระบุเหตุผล, ตั้งสถานะเป็น `CANCELLED`, ลด `booking_slots.booked_count`
+  คืนที่นั่งให้สล็อต และสร้าง delivery `CANCELLATION` สำหรับ MOPH Alert เมื่อเปิดใช้
 - `PATCH /api/staff/appointments/:id/visit-status` — บันทึก `patient_visit_registry.visit_status` (SERVED/NO_SHOW/BOOKED)
   ทำได้เฉพาะนัดหมายที่ `CONFIRMED` แล้วเท่านั้น — endpoint นี้เป็นจุดเดียวในระบบที่เขียนค่านี้ (ก่อนหน้านี้ค่าติดอยู่ที่
   ค่าเริ่มต้น `BOOKED` เสมอ ทำให้ `/staff/reports/visits` ว่างเปล่าในทางปฏิบัติ)
 - `GET /api/staff/slots`
 - `POST /api/staff/slots`
+- `DELETE /api/staff/slots/:id` — ลบได้เฉพาะสล็อตที่ยังไม่มีนัดหมาย; lock สล็อตและตรวจนัดหมายใน transaction
 - `GET /api/staff/dentists`
 - `POST /api/staff/dentists`
 - `POST /api/staff/dentists/:id/portrait`
@@ -491,7 +496,7 @@ API ทั้งหมดอยู่ใน `api/src/app.ts`
 - `GET /api/staff/reports/peak-hours` — นัดที่ไม่ยกเลิก จัดกลุ่มตาม `DAYOFWEEK(service_date)`
   (1=อาทิตย์…7=เสาร์) และ `HOUR(start_time)` คืน `byWeekday`, `byHour` และ `grid` (ไม่ใส่ from/to = ทั้งหมด)
 
-ต้องอ่าน `requireMockStaff()` ที่ route จริงก่อนเปลี่ยน permission เพราะชื่อกลุ่มข้างต้นอธิบาย
+ต้องอ่าน `requireStaff()` ที่ route จริงก่อนเปลี่ยน permission เพราะชื่อกลุ่มข้างต้นอธิบาย
 intent ของ UI และไม่ได้แทนการตรวจสอบ allow-list ของแต่ละ endpoint
 
 ## 11. Database schema
@@ -657,12 +662,7 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
 
 ## 15. Known gaps และสิ่งที่ต้องระวัง
 
-1. **`TIME_ONLY` ยังไม่ complete end-to-end**: frontend ไม่ส่ง `dentistId` แต่ schema ของ
-   `POST /api/appointments` ยังบังคับ `dentistId` และ query ยัง join `dentists`
-2. **Staff authentication ยังเป็น mock**: ห้าม deploy ให้เจ้าหน้าที่ใช้จริงก่อนมี ProviderID SSO,
-   server-side session, CSRF strategy และ authorization ที่เชื่อถือได้ (ผู้ป่วยผ่าน HealthID แล้วเมื่อ
-   `PATIENT_SSO_ENABLED=true` — ดูหัวข้อ 8)
-3. **ฟอร์มกรอกเองใช้งานได้จริง แต่ identity เป็น self-declared**: เลขบัตรที่กรอกถูกใช้จริงทั้งระบบ
+1. **ฟอร์มกรอกเองใช้งานได้จริง แต่ identity เป็น self-declared**: เลขบัตรที่กรอกถูกใช้จริงทั้งระบบ
    (ทะเบียนผู้ป่วย, การจอง, การบล็อก) ระบบตรวจแค่รูปแบบ 13 หลักใน browser — ใครก็กรอกเลขบัตรคนอื่นได้
    จึงต่างจากหมอพร้อม (Dipchip) และ ThaiID (DOPA login) ที่ยืนยันตัวตนกับผู้ให้บริการจริง
    — endpoint ฝั่งผู้ป่วยทุกตัวใช้กลไกเดียวกัน (session ก่อน ไม่งั้น self-declared, ไม่มีก็ 401)
@@ -670,21 +670,20 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
    จาก session อย่างเดียว จึงไม่มีใครยิง `?identity=` สวมเป็นคนอื่นได้อีก — ที่ยังเหลือคือ "ตอนล็อกอิน"
    ยังกรอกเลขบัตรของคนอื่นได้ (ไม่มีการพิสูจน์กับ DOPA/หมอพร้อม) ถ้าต้องการปิดสนิทต้องบังคับใช้ SSO
    อย่างเดียวแล้วปิดฟอร์มกรอกเอง
-4. ~~`AppointmentPage` hardcode `http://localhost:3001/api/dev-auth/patient`~~ **แก้แล้ว** —
+2. ~~`AppointmentPage` hardcode `http://localhost:3001/api/dev-auth/patient`~~ **แก้แล้ว** —
    ใช้ `VITE_API_BASE_URL` แล้ว และค่า default เป็น `/api` (same-origin ผ่าน Vite proxy)
-4.1. ~~`AppointmentPage.tsx` เรนเดอร์ปุ่ม mock ก่อน SSO config โหลดเสร็จ~~ **แก้แล้ว** — ปุ่ม mock
+2.1. ~~`AppointmentPage.tsx` เรนเดอร์ปุ่ม mock ก่อน SSO config โหลดเสร็จ~~ **แก้แล้ว** — ปุ่ม mock
    ถูกลบทั้งหมด และระหว่าง `auth.loaded === false` จะโชว์ loading state แทนที่จะ fall through ไปหน้าปุ่ม mock
-4.2. ~~endpoint ฝั่งผู้ป่วย fallback ไป `MOCK-PATIENT-001` / cookie session อายุ 43 วินาที~~ **แก้แล้ว**
+2.2. ~~endpoint ฝั่งผู้ป่วย fallback ไป `MOCK-PATIENT-001` / cookie session อายุ 43 วินาที~~ **แก้แล้ว**
    — ดูรายละเอียดในหัวข้อ 8 (ทั้งสองตัวรวมกันเคยทำให้ผู้ป่วยที่ล็อกอินจริงเห็นคิวของคนอื่น)
-5. **Payment เป็น mock**: QR ไม่โอนเงินจริงและไม่มี payment callback/reconciliation
-6. **Frontend/Backend build แยกกัน**: API ไม่มี static SPA hosting/fallback route
-7. **Integration tests ใช้ DB ร่วม**: ยังไม่มี isolated ephemeral test database
-8. **Upload storage เป็น local disk**: ไม่เหมาะกับหลาย instance และยังไม่มี lifecycle cleanup
-9. **Generated output ซ้ำหลายจุด**: แก้เฉพาะ source แล้ว build ใหม่ ห้ามแก้ `dist` โดยตรง
-10. **Legacy frontend code ยังอยู่**: `frontend/src/services/appointment.ts`,
+3. **Payment เป็น mock**: QR ไม่โอนเงินจริงและไม่มี payment callback/reconciliation
+4. **Frontend/Backend build แยกกัน**: API ไม่มี static SPA hosting/fallback route
+5. **Integration tests ใช้ DB ร่วม**: ยังไม่มี isolated ephemeral test database
+6. **Upload storage เป็น local disk**: ไม่เหมาะกับหลาย instance และยังไม่มี lifecycle cleanup
+7. **Generated output ซ้ำหลายจุด**: แก้เฉพาะ source แล้ว build ใหม่ ห้ามแก้ `dist` โดยตรง
+8. **Legacy frontend code ยังอยู่**: `frontend/src/services/appointment.ts`,
     `ServiceCard.tsx` และ type บางส่วนไม่ได้อยู่ใน booking flow ปัจจุบัน
-11. **ไม่มี Git metadata ใน workspace ปัจจุบัน**: คำสั่ง `git status/diff` ใช้ไม่ได้ใน directory นี้
-12. **ทะเบียนลงเวรยังไม่เชื่อมกับ `booking_slots`**: เป็นทะเบียนอ้างอิงอย่างเดียว การสร้างสล็อตจอง
+9. **ทะเบียนลงเวรยังไม่เชื่อมกับ `booking_slots`**: เป็นทะเบียนอ้างอิงอย่างเดียว การสร้างสล็อตจอง
     ยังต้องทำที่ `/staff/slots` ตามเดิม และยังไม่มีหน้าจอแก้วันลงเวรรายช่อง (ต้องอัปโหลดไฟล์ทับทั้งเดือน)
 13. **Parser ตารางเวรอิงรูปแบบไฟล์**: ต้องมีแถวหัวตารางที่เป็นเลข 1–31 และคอลัมน์ที่มีคำว่า "ชื่อ"
     ถ้าไฟล์เปลี่ยนรูปแบบให้แก้/เพิ่ม test ใน `api/src/domain/dutyRoster.test.ts` ก่อน
@@ -723,7 +722,7 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
 | Routing/layout | `frontend/src/App.tsx`, `frontend/src/components/SiteLayout.tsx`, `AdminPanelLayout.tsx` |
 | Public content/UI | `frontend/src/pages/*`, `frontend/src/data/*`, `frontend/src/styles/global.css` |
 | Booking wizard | `frontend/src/pages/BookingPage.tsx`, `api/src/app.ts`, `api/src/domain/booking.ts` |
-| Login/session | `AppointmentPage.tsx`, `SiteHeader.tsx`, `StaffRoleSelectPage.tsx`, `api/src/app.ts`, `api/src/services/mophHealthId.ts`, `api/src/services/thaidAuth.ts`, `api/src/services/patientSession.ts`, `frontend/src/services/patientSession.ts` |
+| Login/session | `AppointmentPage.tsx`, `SiteHeader.tsx`, `StaffRoleSelectPage.tsx`, `api/src/app.ts`, `api/src/services/mophHealthId.ts`, `providerId.ts`, `staffSession.ts`, `thaidAuth.ts`, `patientSession.ts`, `frontend/src/services/{patientSession,staffAuth}.ts` |
 | Slots | `StaffSlotsPage.tsx`, route `/api/staff/slots*`, `booking_slots` schema |
 | ปฏิบัติงานประจำวัน (คิว walk-in/ยกเลิก/มาตามนัด) | `StaffQueueBoardPage.tsx`, `bookAppointmentInSlot()` ใน `app.ts`, routes `/api/staff/day-queue`, `/api/staff/appointments/walk-in`, `/api/staff/appointments/:id/cancel`, `/api/staff/appointments/:id/visit-status` |
 | Dentist registry | `StaffDentistsPage.tsx`, `TeamPage.tsx`, dentist API routes |
@@ -734,7 +733,7 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
 | Service registry | `ServicesPage.tsx`, `StaffAdminPage.tsx`, service API routes, `seed.ts` |
 | Payment/slips | `BookingPage.tsx`, `StaffDashboardPage.tsx`, appointment/slip routes |
 | Patient blocklist | `PatientRegistryPage.tsx`, patient registry API routes |
-| Staff roles | `AdminPanelLayout.tsx`, staff user routes, `requireMockStaff()` |
+| Staff roles | `AdminPanelLayout.tsx`, `StaffUsersPage.tsx`, staff user routes, `requireStaff()` |
 | MOPH Alert | `SystemSettingsPage.tsx`, `mophAlert.ts`, delivery code ใน `app.ts` |
 | Database | `api/src/scripts/migrate.ts`, `seed.ts`, SQL queries ใน `app.ts` |
 | Test contract | `api/src/*.test.ts`, `api/src/domain/*.test.ts`, `frontend/src/__tests__/app.test.tsx` |

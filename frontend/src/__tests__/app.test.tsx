@@ -1142,6 +1142,19 @@ describe('clinic SPA', () => {
     expect(screen.queryByRole('row', { name: /นอกเวลา/ })).not.toBeInTheDocument();
   });
 
+  it('uses the contact-page service-hours label in the home preparation information', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).endsWith('/clinic-config')) return Promise.resolve(new Response(JSON.stringify({ clinicTypes: ['PMC'] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
+    render(<App initialEntries={['/']} />);
+
+    const preparationInfo = screen.getByRole('heading', { name: 'ข้อมูลสำหรับการเตรียมตัวก่อนเข้ารับบริการ' }).parentElement;
+    expect(preparationInfo).not.toBeNull();
+    await waitFor(() => expect(within(preparationInfo!).getByText('PMC · ในเวลา จันทร์–ศุกร์ 08:30–16:30 น.')).toBeInTheDocument());
+    expect(within(preparationInfo!).queryByText(/SMC · นอกเวลา/)).not.toBeInTheDocument();
+  });
+
   it('lets IT Staff configure MOPH Alert without exposing saved credentials', async () => {
     sessionStorage.setItem('clinic_mock_role', 'IT_STAFF');
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

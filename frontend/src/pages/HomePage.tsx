@@ -14,7 +14,7 @@ import clinicExterior from '../assets/images/clinic-exterior-hero-v1.png';
 import desktopLogo from '../assets/logos/logo_web.png';
 import mobileLogo from '../assets/logos/logo_web700.png';
 import { PublicServiceCard } from '../components/PublicServiceCard';
-import { clinicHoursRows, useClinicTypes } from '../data/clinicSchedule';
+import { clinicHoursLabel, clinicHoursRows, useClinicTypes } from '../data/clinicSchedule';
 import { contactPlaceholders, faqs } from '../data/site';
 import { useTeamDirectory } from '../data/teamDirectory';
 import { usePublicServices } from '../services/publicServices';
@@ -47,6 +47,7 @@ export function HomePage() {
   const serviceRegistry = usePublicServices();
   const clinicTypes = useClinicTypes();
   const serviceHours = clinicHoursRows(clinicTypes);
+  const serviceHoursLabel = clinicHoursLabel(clinicTypes);
   const teamDirectory = useTeamDirectory();
 
   return (
@@ -244,7 +245,7 @@ export function HomePage() {
           <div className="contact-preview">
             <p className="eyebrow">ติดต่อและคำถามที่พบบ่อย</p>
             <h2 id="contact-preview-title">ข้อมูลสำหรับการเตรียมตัวก่อนเข้ารับบริการ</h2>
-            <p>{contactPlaceholders.hours}</p>
+            <p>{serviceHoursLabel}</p>
             <p>{contactPlaceholders.phone}</p>
             <Link className="text-link" to="/contact">
               ดูข้อมูลติดต่อ <ArrowRight aria-hidden="true" size={17} />
