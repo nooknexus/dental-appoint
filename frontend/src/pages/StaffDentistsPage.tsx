@@ -5,7 +5,7 @@ import { Toast, useToast } from '../components/Toast';
 import { getStaffRole, staffFetch } from '../services/staffAuth';
 
 type Service = { id: number; title: string; category: string };
-type Dentist = { id: number; displayName: string; title: 'ทพ.' | 'ทพญ.'; queuePrefix: string; portraitUrl: string | null; active: boolean; serviceIds: number[] };
+type Dentist = { id: number; displayName: string; title: 'ทพ.' | 'ทพญ.'; specialty: string; queuePrefix: string; portraitUrl: string | null; active: boolean; serviceIds: number[] };
 type BookingFlow = 'PROCEDURE_AND_DENTIST' | 'DENTIST_ONLY' | 'TIME_ONLY';
 type Registry = { dentists: Dentist[]; services: Service[]; bookingFlow: BookingFlow };
 
@@ -59,6 +59,7 @@ export function StaffDentistsPage() {
   const { toast, notify, dismissToast } = useToast();
   const [creating, setCreating] = useState(false);
   const [changingStatusId, setChangingStatusId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const createInFlight = useRef(false);
   const createDentist = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,7 +68,7 @@ export function StaffDentistsPage() {
     const form = new FormData(event.currentTarget);
     setCreating(true);
     try {
-      const response = await staffFetch(`${apiBase}/staff/dentists`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-mock-role': role ?? 'CLINIC_STAFF' }, body: JSON.stringify({ displayName: form.get('displayName'), title: form.get('title'), queuePrefix: form.get('queuePrefix') }) });
+      const response = await staffFetch(`${apiBase}/staff/dentists`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-mock-role': role ?? 'CLINIC_STAFF' }, body: JSON.stringify({ displayName: form.get('displayName'), title: form.get('title'), specialty: form.get('specialty'), queuePrefix: form.get('queuePrefix') }) });
       const created = response.ok ? await response.json() as { dentist: Dentist } : null;
       const portrait = form.get('portrait');
       const portraitUpload = portrait instanceof File && portrait.size > 0 && created ? await uploadPortrait(created.dentist.id, portrait) : true;
@@ -83,6 +84,13 @@ export function StaffDentistsPage() {
     const response = await staffFetch(`${apiBase}/staff/dentists/${id}/queue-prefix`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-mock-role': role ?? 'CLINIC_STAFF' }, body: JSON.stringify({ queuePrefix: form.get('queuePrefix') }) });
     if (response.ok) notify('บันทึก Queue Prefix เรียบร้อยแล้ว ระบบจะใช้ค่านี้ในการออกเลขคิวของทันตแพทย์ท่านนี้'); else notify('ไม่สามารถบันทึก Queue Prefix ได้', 'error');
     if (response.ok) refreshRegistry();
+  };
+  const updateSpecialty = async (event: FormEvent<HTMLFormElement>, id: number) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const response = await staffFetch(`${apiBase}/staff/dentists/${id}/specialty`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-mock-role': role ?? 'CLINIC_STAFF' }, body: JSON.stringify({ specialty: form.get('specialty') }) });
+    if (response.ok) notify('บันทึกความเชี่ยวชาญของทันตแพทย์เรียบร้อยแล้ว'); else notify('ไม่สามารถบันทึกความเชี่ยวชาญได้', 'error');
+    if (response.ok) { refreshRegistry(); window.dispatchEvent(new Event('dentist-registry-updated')); }
   };
   const updateServices = async (dentistId: number, serviceIds: number[]) => {
     const response = await staffFetch(`${apiBase}/staff/dentists/${dentistId}/services`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-mock-role': role ?? 'CLINIC_STAFF' }, body: JSON.stringify({ serviceIds }) });
@@ -111,11 +119,26 @@ export function StaffDentistsPage() {
       if (response.ok) { refreshRegistry(); window.dispatchEvent(new Event('dentist-registry-updated')); }
     } finally { setChangingStatusId(null); }
   };
+  const deleteDentist = async (dentist: Dentist) => {
+    if (!window.confirm(`ต้องการลบรายชื่อ ${dentist.displayName} ใช่หรือไม่`)) return;
+    setDeletingId(dentist.id);
+    try {
+      const response = await staffFetch(`${apiBase}/staff/dentists/${dentist.id}`, { method: 'DELETE', headers: { 'x-mock-role': role ?? 'CLINIC_STAFF' } });
+      if (response.ok) {
+        notify('ลบรายชื่อทันตแพทย์เรียบร้อยแล้ว');
+        refreshRegistry();
+        window.dispatchEvent(new Event('dentist-registry-updated'));
+      } else {
+        const body = await response.json().catch(() => null) as { message?: string } | null;
+        notify(body?.message ?? 'ไม่สามารถลบทันตแพทย์ได้', 'error');
+      }
+    } finally { setDeletingId(null); }
+  };
 
   if (role !== 'IT_STAFF') return <StaffAccessDenied />;
   const canManage = role === 'IT_STAFF';
   const showServices = bookingFlow === 'PROCEDURE_AND_DENTIST';
   const showQueuePrefix = bookingFlow !== 'TIME_ONLY';
   const showQueuePattern = bookingFlow !== 'TIME_ONLY';
-  return <article className="staff-page"><div className="container"><p className="eyebrow">{role === 'IT_STAFF' ? 'IT Staff' : 'Clinic Staff'} · Dentist Registry</p><h1>ทะเบียนทันตแพทย์</h1><p>กำหนด Queue Prefix หัตถการ และรูปประจำตัวของทันตแพทย์ เพื่อใช้ในการสร้างสล็อต ตรวจสอบการจอง และแสดงบนหน้าทีม</p><section className="user-admin-card dentist-registry-card"><div className="user-admin-card__heading"><Stethoscope size={25} /><header className="dentist-registry-heading"><h2>กำหนดทันตแพทย์และหัตถการ</h2><small>ใช้ตัวอักษร A–Z, ตัวเลข และเครื่องหมายขีดกลางสำหรับ Queue Prefix; รูปรับ JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB</small></header></div>{canManage && <form className="dentist-prefix-form" onSubmit={createDentist}><h2>เพิ่มทันตแพทย์</h2><label>คำนำหน้า<select defaultValue="ทพ." name="title"><option value="ทพ.">ทพ.</option><option value="ทพญ.">ทพญ.</option></select></label><label>ชื่อทันตแพทย์<input name="displayName" required /></label><label>Queue Prefix<input name="queuePrefix" pattern="[A-Z0-9-]+" required /></label><label>รูปทันตแพทย์<input accept="image/jpeg,image/png,image/webp" name="portrait" type="file" /></label><button className="button button--small" type="submit" disabled={creating}>{creating ? 'กำลังเพิ่ม…' : 'เพิ่มทันตแพทย์'}</button></form>}<div className="staff-table-wrap"><table><thead><tr><th>ทันตแพทย์</th><th>คำนำหน้า</th><th>รูป</th><th>สถานะ</th>{showQueuePrefix && <th>Queue Prefix</th>}{showServices && <th>หัตถการที่ให้บริการ</th>}{showQueuePattern && <th>รูปแบบเลขคิว</th>}<th>จัดการ</th></tr></thead><tbody>{dentists.map((dentist) => { const assignedServiceIdSet = new Set(dentist.serviceIds); const assignedServices = services.filter((service) => assignedServiceIdSet.has(service.id)); return <tr key={dentist.id}><td><b>{dentist.displayName}</b></td><td>{dentist.title}</td><td>{dentist.portraitUrl && <img alt={`รูป ${dentist.displayName}`} className="dentist-portrait-preview" src={`${imageBase}${dentist.portraitUrl}`} />}{canManage && <label className="dentist-portrait-upload">เปลี่ยนรูป<input accept="image/jpeg,image/png,image/webp" onChange={(event) => { const portrait = event.currentTarget.files?.[0]; if (portrait) handlePortraitSelection(dentist.id, portrait); }} type="file" /></label>}</td><td><span className={`status-pill ${dentist.active ? 'status-pill--approved' : 'status-pill--disabled'}`}>{dentist.active ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}</span></td>{showQueuePrefix && <td>{canManage && dentist.active ? <form className="dentist-prefix-form" onSubmit={(event) => updatePrefix(event, dentist.id)}><input aria-label={`Queue Prefix ${dentist.displayName}`} defaultValue={dentist.queuePrefix} name="queuePrefix" required /><button className="button button--small" type="submit">บันทึก</button></form> : <span>{dentist.queuePrefix}</span>}</td>}{showServices && <td><div className="dentist-service-tags">{assignedServices.map((service) => <span key={service.id}>{service.title}</span>)}{!assignedServices.length && <small>ยังไม่กำหนดหัตถการ</small>}</div></td>}{showQueuePattern && <td><span className="status-pill status-pill--approved">{dentist.queuePrefix}-001</span></td>}<td>{canManage ? <><button className="button button--small" type="button" disabled={changingStatusId === dentist.id} onClick={() => void changeStatus(dentist)}>{changingStatusId === dentist.id ? 'กำลังบันทึก…' : dentist.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>{dentist.active && showServices && <DentistServiceEditor key={`${dentist.id}-${dentist.serviceIds.join('-')}`} dentist={dentist} services={services} onSave={updateServices} />}</> : <small>ดูข้อมูลได้เท่านั้น</small>}</td></tr>; })}</tbody></table></div></section></div><Toast onDismiss={dismissToast} toast={toast} /></article>;
+  return <article className="staff-page"><div className="container"><p className="eyebrow">{role === 'IT_STAFF' ? 'IT Staff' : 'Clinic Staff'} · Dentist Registry</p><h1>ทะเบียนทันตแพทย์</h1><p>กำหนดความเชี่ยวชาญ Queue Prefix หัตถการ และรูปประจำตัวของทันตแพทย์ เพื่อใช้ในการสร้างสล็อต ตรวจสอบการจอง และแสดงบนหน้าทีม</p><section className="user-admin-card dentist-registry-card"><div className="user-admin-card__heading"><Stethoscope size={25} /><header className="dentist-registry-heading"><h2>กำหนดทันตแพทย์และหัตถการ</h2><small>ใช้ตัวอักษร A–Z, ตัวเลข และเครื่องหมายขีดกลางสำหรับ Queue Prefix; รูปรับ JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB</small></header></div>{canManage && <form className="dentist-prefix-form" onSubmit={createDentist}><h2>เพิ่มทันตแพทย์</h2><label>คำนำหน้า<select defaultValue="ทพ." name="title"><option value="ทพ.">ทพ.</option><option value="ทพญ.">ทพญ.</option></select></label><label>ชื่อทันตแพทย์<input name="displayName" required /></label><label>ความเชี่ยวชาญ<input defaultValue="ทันตกรรมทั่วไป" name="specialty" required /></label><label>Queue Prefix<input name="queuePrefix" pattern="[A-Z0-9-]+" required /></label><label>รูปทันตแพทย์<input accept="image/jpeg,image/png,image/webp" name="portrait" type="file" /></label><button className="button button--small" type="submit" disabled={creating}>{creating ? 'กำลังเพิ่ม…' : 'เพิ่มทันตแพทย์'}</button></form>}<div className="staff-table-wrap"><table><thead><tr><th>ทันตแพทย์</th><th>คำนำหน้า</th><th>ความเชี่ยวชาญ</th><th>รูป</th><th>สถานะ</th>{showQueuePrefix && <th>Queue Prefix</th>}{showServices && <th>หัตถการที่ให้บริการ</th>}{showQueuePattern && <th>รูปแบบเลขคิว</th>}<th>จัดการ</th></tr></thead><tbody>{dentists.map((dentist) => { const assignedServiceIdSet = new Set(dentist.serviceIds); const assignedServices = services.filter((service) => assignedServiceIdSet.has(service.id)); return <tr key={dentist.id}><td><b>{dentist.displayName}</b></td><td>{dentist.title}</td><td>{canManage && dentist.active ? <form className="dentist-prefix-form" onSubmit={(event) => updateSpecialty(event, dentist.id)}><input aria-label={`ความเชี่ยวชาญ ${dentist.displayName}`} defaultValue={dentist.specialty} name="specialty" required /><button className="button button--small" type="submit">บันทึก</button></form> : <span>{dentist.specialty}</span>}</td><td>{dentist.portraitUrl && <img alt={`รูป ${dentist.displayName}`} className="dentist-portrait-preview" src={`${imageBase}${dentist.portraitUrl}`} />}{canManage && <label className="dentist-portrait-upload">เปลี่ยนรูป<input accept="image/jpeg,image/png,image/webp" onChange={(event) => { const portrait = event.currentTarget.files?.[0]; if (portrait) handlePortraitSelection(dentist.id, portrait); }} type="file" /></label>}</td><td><span className={`status-pill ${dentist.active ? 'status-pill--approved' : 'status-pill--disabled'}`}>{dentist.active ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}</span></td>{showQueuePrefix && <td>{canManage && dentist.active ? <form className="dentist-prefix-form" onSubmit={(event) => updatePrefix(event, dentist.id)}><input aria-label={`Queue Prefix ${dentist.displayName}`} defaultValue={dentist.queuePrefix} name="queuePrefix" required /><button className="button button--small" type="submit">บันทึก</button></form> : <span>{dentist.queuePrefix}</span>}</td>}{showServices && <td><div className="dentist-service-tags">{assignedServices.map((service) => <span key={service.id}>{service.title}</span>)}{!assignedServices.length && <small>ยังไม่กำหนดหัตถการ</small>}</div></td>}{showQueuePattern && <td><span className="status-pill status-pill--approved">{dentist.queuePrefix}-001</span></td>}<td>{canManage ? <><button className="button button--small" type="button" disabled={changingStatusId === dentist.id || deletingId === dentist.id} onClick={() => void changeStatus(dentist)}>{changingStatusId === dentist.id ? 'กำลังบันทึก…' : dentist.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button><button className="button button--small button--danger" type="button" disabled={deletingId === dentist.id || changingStatusId === dentist.id} onClick={() => void deleteDentist(dentist)}>{deletingId === dentist.id ? 'กำลังลบ…' : 'ลบ'}</button>{dentist.active && showServices && <DentistServiceEditor key={`${dentist.id}-${dentist.serviceIds.join('-')}`} dentist={dentist} services={services} onSave={updateServices} />}</> : <small>ดูข้อมูลได้เท่านั้น</small>}</td></tr>; })}</tbody></table></div></section></div><Toast onDismiss={dismissToast} toast={toast} /></article>;
 }

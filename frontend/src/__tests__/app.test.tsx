@@ -5,6 +5,7 @@ import App from '../App';
 import { resetPatientAuthCache } from '../services/patientSession';
 import { resetPatientAppointmentsCache } from '../pages/PatientAppointmentsPage';
 import { resetSatisfactionCache } from '../pages/SatisfactionPage';
+import { resetStaffAuthCache } from '../services/staffAuth';
 
 async function signInWithCitizenForm(user: ReturnType<typeof userEvent.setup>, name = 'มานี รักเรียน', citizenId = '1101700203456') {
   const [firstName, lastName] = name.split(' ');
@@ -48,6 +49,7 @@ function stubDentistRegistry(bookingFlow: 'PROCEDURE_AND_DENTIST' | 'DENTIST_ONL
 
 function stubStaffSlots(bookingFlow: 'PROCEDURE_AND_DENTIST' | 'DENTIST_ONLY' | 'TIME_ONLY' = 'PROCEDURE_AND_DENTIST') {
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+    if (String(input).endsWith('/auth/config')) return Promise.resolve(new Response(JSON.stringify({ staffAuthMode: 'mock' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     if (String(input).includes('/staff/slots')) {
       return Promise.resolve(new Response(JSON.stringify({
         date: '2026-09-15',
@@ -149,6 +151,7 @@ function stubDutyRoster() {
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+    if (url.endsWith('/auth/config')) return json({ staffAuthMode: 'mock' });
     if (url.includes('/staff/duty-rosters/template')) { requestedTemplates.push(url); return Promise.resolve(new Response(new Blob(['xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), { status: 200 })); }
     if (url.endsWith('/staff/duty-rosters/parse')) return json(parsed);
     if (url.endsWith('/staff/duty-rosters') && init?.method === 'POST') { saved.push(JSON.parse(String(init.body))); return json({ message: 'บันทึกทะเบียนลงเวรเดือน 2026-09 แล้ว (2 คน / 3 วันลงเวร)', ...detail }, 201); }
@@ -160,14 +163,14 @@ function stubDutyRoster() {
 }
 
 describe('clinic SPA', () => {
-  it('shows the clinic promise and an appointment action on the home route', () => {
+  it('shows a care-focused clinic promise without standards claims on the home route', () => {
     render(<App initialEntries={['/']} />);
 
     expect(
-      screen.getByRole('heading', { name: /ดูแลทุกรอยยิ้ม.*ด้วยมาตรฐานและความใส่ใจ/i }),
+      screen.getByRole('heading', { name: 'ดูแลทุกรอยยิ้มด้วยความใส่ใจ' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /จองคิวทันตกรรม/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'มาตรฐานการบริการ' })).toBeInTheDocument();
+    expect(screen.queryByText(/มาตรฐาน/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ใส่ใจทุกขั้นตอน' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ทีมทันตบุคลากร' })).toBeInTheDocument();
     expect(screen.getAllByText('สำนักงานสาธารณสุขจังหวัดพิษณุโลก').length).toBeGreaterThan(0);
@@ -216,18 +219,33 @@ describe('clinic SPA', () => {
     ).toHaveLength(3);
   });
 
-  it('shows mock team profiles and an appointment action on the team route', () => {
+  it('shows only dentists returned by the registry on the team route', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).endsWith('/dentists')) return Promise.resolve(new Response(JSON.stringify({ dentists: [{
+        id: 71, name: 'ทพญ. รายชื่อจริง ทดสอบ', title: 'ทพญ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null,
+      }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (String(input).endsWith('/dentists/weekly-duty-schedule')) return Promise.resolve(new Response(JSON.stringify({
+        weekStart: '2026-09-14', weekEnd: '2026-09-20', dentists: [{ id: 71, displayName: 'ทพญ. รายชื่อจริง ทดสอบ', dates: ['2026-09-14'] }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
     render(<App initialEntries={['/team']} />);
+    window.dispatchEvent(new Event('dentist-registry-updated'));
 
-    expect(screen.getByRole('heading', { name: 'ทพญ. พิมพ์ใจ สุขสันต์' })).toBeInTheDocument();
-    expect(screen.getByText('ตรวจสุขภาพช่องปาก')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'คุณกมลวรรณ ใจดี' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'ทพญ. รายชื่อจริง ทดสอบ' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'คุณกมลวรรณ ใจดี' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'คุณณิชา รอยยิ้ม' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /จองคิวทันตกรรม/i }).length).toBeGreaterThan(0);
   });
 
-  it('shows staff portraits and links the weekly schedule to real duty roster data', async () => {
+  it('shows only dentist cards assigned to this week’s duty roster', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.endsWith('/dentists')) return Promise.resolve(new Response(JSON.stringify({ dentists: [
+        { id: 3, name: 'ทพญ. พิมพ์ใจ สุขสันต์', title: 'ทพญ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null },
+        { id: 4, name: 'ทพ. ณัฐวุฒิ ยิ้มแย้ม', title: 'ทพ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null },
+        { id: 5, name: 'ทพ. ไม่ได้ออกตรวจ สัปดาห์นี้', title: 'ทพ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null },
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
       if (url.endsWith('/dentists/weekly-duty-schedule')) return Promise.resolve(new Response(JSON.stringify({
         weekStart: '2026-09-14', weekEnd: '2026-09-20',
         dentists: [{ id: 3, displayName: 'ทพญ. พิมพ์ใจ สุขสันต์', dates: ['2026-09-14', '2026-09-16'] }, { id: 4, displayName: 'ทพ. ณัฐวุฒิ ยิ้มแย้ม', dates: ['2026-09-15'] }],
@@ -235,9 +253,11 @@ describe('clinic SPA', () => {
       return Promise.resolve(new Response('{}', { status: 404 }));
     }));
     render(<App initialEntries={['/team']} />);
+    window.dispatchEvent(new Event('dentist-registry-updated'));
 
-    expect(screen.getByRole('img', { name: 'ภาพ ทพญ. พิมพ์ใจ สุขสันต์' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'ภาพ คุณกมลวรรณ ใจดี' })).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'รูปตัวอย่างทันตแพทย์หญิงสำหรับ ทพญ. พิมพ์ใจ สุขสันต์' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'ทพ. ไม่ได้ออกตรวจ สัปดาห์นี้' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'ภาพ คุณกมลวรรณ ใจดี' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Mockup/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ข้อมูลตัวอย่าง/)).not.toBeInTheDocument();
 
@@ -261,16 +281,19 @@ describe('clinic SPA', () => {
     expect(screen.queryByRole('table', { name: 'ตารางเวรประจำสัปดาห์นี้' })).not.toBeInTheDocument();
   });
 
-  it('gives a registered dentist without a curated bio a generic, honest profile instead of borrowing another dentist\'s bio and photo', async () => {
+  it('uses a gender-appropriate mockup for registered dentists without uploaded portraits', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/dentists')) return Promise.resolve(new Response(JSON.stringify({ dentists: [{
-        id: 101,
-        name: 'ทพญ.นิศา ทองนพคุณ',
-        title: 'ทพญ.',
-        specialty: 'ทันตกรรมทั่วไป',
-        portraitUrl: null,
-      }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (url.endsWith('/dentists')) return Promise.resolve(new Response(JSON.stringify({ dentists: [
+        { id: 101, name: 'ทพญ.นิศา ทองนพคุณ', title: 'ทพญ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null },
+        { id: 102, name: 'ทพ.กิตติคุณ ทดสอบ', title: 'ทพ.', specialty: 'ทันตกรรมทั่วไป', portraitUrl: null },
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (url.endsWith('/dentists/weekly-duty-schedule')) return Promise.resolve(new Response(JSON.stringify({
+        weekStart: '2026-09-14', weekEnd: '2026-09-20', dentists: [
+          { id: 101, displayName: 'ทพญ.นิศา ทองนพคุณ', dates: ['2026-09-14'] },
+          { id: 102, displayName: 'ทพ.กิตติคุณ ทดสอบ', dates: ['2026-09-15'] },
+        ],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
       return Promise.resolve(new Response('{}', { status: 404 }));
     }));
 
@@ -279,12 +302,12 @@ describe('clinic SPA', () => {
 
     const profile = (await screen.findByRole('heading', { name: 'ทพญ.นิศา ทองนพคุณ' })).closest('article');
     expect(profile).not.toBeNull();
-    // no portrait uploaded and no curated bio for this name: a neutral placeholder, never another named dentist's photo or bio
-    expect(within(profile!).getByRole('img', { name: 'ยังไม่มีรูปประจำตัวของ ทพญ.นิศา ทองนพคุณ' })).toBeInTheDocument();
-    expect(within(profile!).queryByRole('img', { name: /พิมพ์ใจ/ })).not.toBeInTheDocument();
-    expect(within(profile!).getByText('ทันตกรรมทั่วไป')).toBeInTheDocument();
+    expect(within(profile!).getByRole('img', { name: 'รูปตัวอย่างทันตแพทย์หญิงสำหรับ ทพญ.นิศา ทองนพคุณ' })).toBeInTheDocument();
+    expect(within(profile!).getByText('ทันตแพทย์')).toHaveClass('team-card__role');
+    expect(within(profile!).getAllByText('ทันตกรรมทั่วไป')).toHaveLength(1);
     expect(within(profile!).queryByText('ให้คำปรึกษาและวางแผนการดูแลสุขภาพช่องปากสำหรับผู้รับบริการทุกช่วงวัย')).not.toBeInTheDocument();
     expect(within(profile!).queryByText('จันทร์–ศุกร์ 09:00–16:00 น.')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'รูปตัวอย่างทันตแพทย์ชายสำหรับ ทพ.กิตติคุณ ทดสอบ' })).toBeInTheDocument();
   });
 
   it('shows the same registered dentist directory on the home page team preview as on /team', async () => {
@@ -1188,6 +1211,38 @@ describe('clinic SPA', () => {
     expect(await screen.findByRole('button', { name: 'สร้างสล็อตที่เลือก' })).toBeInTheDocument();
   });
 
+  it('asks for confirmation in a modal before deleting an unbooked slot and reports success in a toast', async () => {
+    resetStaffAuthCache();
+    sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
+    let slots = [
+      { id: 501, dentistId: null, dentistName: 'คิวกลางคลินิก', startTime: '09:00', endTime: '09:30', capacity: 1, bookedCount: 0, active: true },
+      { id: 502, dentistId: null, dentistName: 'คิวกลางคลินิก', startTime: '09:30', endTime: '10:00', capacity: 1, bookedCount: 1, active: true },
+    ];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (url.endsWith('/auth/config')) return json({ staffAuthMode: 'mock' });
+      if (url.endsWith('/staff/slots/501') && init?.method === 'DELETE') { slots = slots.filter((slot) => slot.id !== 501); return json({ message: 'ลบสล็อตเรียบร้อยแล้ว' }); }
+      if (url.includes('/staff/slots')) return json({ date: '2026-09-15', bookingFlow: 'TIME_ONLY', dentists: [], slots });
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+    const user = userEvent.setup();
+    render(<App initialEntries={['/staff/slots']} />);
+
+    await user.click(await screen.findByRole('button', { name: 'ลบสล็อต 09:00' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'ยืนยันการลบสล็อต 09:00–09:30 น.' });
+    expect(within(dialog).getByText('ต้องการลบสล็อต 09:00–09:30 น. ใช่หรือไม่?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ลบสล็อต 09:00' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'ยืนยันลบสล็อต' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'ลบสล็อต 09:00' })).not.toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('ลบสล็อตเรียบร้อยแล้ว');
+    expect(within(document.querySelector('.slot-admin-list')!).getByText('09:30–10:00 น.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'ลบสล็อต 09:30' })).not.toBeInTheDocument();
+  });
+
   it('waits for the configured booking flow before showing slot controls', async () => {
     sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
     let resolveSlots: (response: Response) => void = () => undefined;
@@ -1231,6 +1286,23 @@ describe('clinic SPA', () => {
     fireEvent.change(screen.getByLabelText('วันให้บริการ'), { target: { value: '2026-09-06' } });
     expect(screen.getByRole('checkbox', { name: '16:00–16:30 น.' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '16:30–17:00 น.' })).not.toBeInTheDocument();
+  });
+
+  it('leaves the 11:30 and after-15:30 weekday slots unchecked until Clinic Staff opts in', async () => {
+    stubStaffSlots();
+    resetStaffAuthCache();
+    sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
+    const user = userEvent.setup();
+    render(<App initialEntries={['/staff/slots']} />);
+    fireEvent.change(await screen.findByLabelText('วันให้บริการ'), { target: { value: '2026-09-07' } });
+
+    expect(screen.getByRole('checkbox', { name: '11:30–12:00 น.' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '15:30–16:00 น.' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '16:00–16:30 น.' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '20:00–20:30 น.' })).not.toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: '16:00–16:30 น.' }));
+    expect(screen.getByRole('checkbox', { name: '16:00–16:30 น.' })).toBeChecked();
   });
 
   it('changes the generated slot intervals when Clinic Staff selects a different duration', async () => {
@@ -1286,6 +1358,8 @@ describe('clinic SPA', () => {
     render(<App initialEntries={['/staff/dentists']} />);
 
     expect(await screen.findByRole('heading', { name: 'ทะเบียนทันตแพทย์' })).toBeInTheDocument();
+    expect(screen.getByLabelText('ความเชี่ยวชาญ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ลบ' })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('columnheader', { name: 'Queue Prefix' })).not.toBeInTheDocument());
   });
 
@@ -1372,6 +1446,40 @@ describe('clinic SPA', () => {
     expect(await screen.findByRole('dialog', { name: 'สลิปโอนเงิน หมายเลขคิว DNT002' })).toBeInTheDocument();
     expect(showModal).toHaveBeenCalledTimes(1);
   });
+
+  it('lets Clinic Staff cancel a pending review appointment in a modal and reports the result in a toast', async () => {
+    resetStaffAuthCache();
+    sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+    let cancelled = false;
+    let cancellationReason: string | null = null;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (url.endsWith('/auth/config')) return json({ staffAuthMode: 'mock' });
+      if (url.endsWith('/staff/appointments/7/cancel') && init?.method === 'POST') { cancellationReason = JSON.parse(String(init.body)).reason; cancelled = true; return json({ message: 'ยกเลิกคิวหมายเลข DNT002 แล้ว' }); }
+      if (url.endsWith('/staff/appointments')) return json({ appointments: [{
+        id: 7, queueNumber: 'DNT002', status: cancelled ? 'CANCELLED' : 'PENDING', paymentStatus: 'SLIP_UPLOADED', patientName: 'คุณสมหญิง ใจงาม',
+        serviceName: 'อุดฟัน', dentistName: 'ทพ. ณัฐวุฒิ ยิ้มแย้ม', startsAt: '2026-09-10T09:00:00+07:00', phone: '0826018089', slipAvailable: true,
+      }] });
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }));
+    const user = userEvent.setup();
+    render(<App initialEntries={['/staff/appointments']} />);
+
+    const row = (await screen.findByText('DNT002')).closest('tr');
+    expect(row).not.toBeNull();
+    await user.click(within(row!).getByRole('button', { name: 'ยกเลิกคิว' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'ยืนยันยกเลิกคิวหมายเลข DNT002' });
+    expect(within(dialog).getByText('ต้องการยกเลิกคิวหมายเลข DNT002 ใช่หรือไม่?')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('เหตุผลการยกเลิก'), 'ทันตแพทย์ติดภารกิจเร่งด่วน');
+    await user.click(within(dialog).getByRole('button', { name: 'ยืนยันยกเลิกคิว' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('ยกเลิกคิวหมายเลข DNT002 แล้ว');
+    expect(cancellationReason).toBe('ทันตแพทย์ติดภารกิจเร่งด่วน');
+    await waitFor(() => expect(screen.queryByText('DNT002')).not.toBeInTheDocument());
+  });
   it('shows a failed slip preview as an error toast without hiding the appointment table', async () => {
     sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
@@ -1401,11 +1509,12 @@ describe('clinic SPA', () => {
 
   it('imports a dentist duty roster from an Excel file and renders the monthly duty grid', async () => {
     const { saved } = stubDutyRoster();
+    resetStaffAuthCache();
     sessionStorage.setItem('clinic_mock_role', 'CLINIC_STAFF');
     const user = userEvent.setup();
     render(<App initialEntries={['/staff/duty-roster']} />);
 
-    expect(screen.getByRole('heading', { name: 'ทะเบียนลงเวรทันตแพทย์' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'ทะเบียนลงเวรทันตแพทย์' })).toBeInTheDocument();
     await user.upload(screen.getByLabelText('ไฟล์ตารางเวร Excel'), new File(['duty'], 'duty-2569-09.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     await user.click(screen.getByRole('button', { name: /อ่านไฟล์/ }));
 
@@ -1434,9 +1543,14 @@ describe('clinic SPA', () => {
 
     const headerCells = within(screen.getByRole('table', { name: '' }) ?? document.body).queryAllByRole('columnheader');
     expect(headerCells.length).toBeGreaterThan(0);
-    expect(screen.getByRole('columnheader', { name: '28' })).toHaveClass('duty-grid__holiday');
-    expect(screen.getByRole('columnheader', { name: '28' })).toHaveAttribute('title', 'วันทดสอบวันหยุด');
-    expect(screen.getByRole('columnheader', { name: '27' })).toHaveClass('duty-grid__weekend');
+    const mondayFourteenth = screen.getByRole('columnheader', { name: 'วันที่ 14 (จ.)' });
+    expect(mondayFourteenth).toHaveTextContent('14จ.');
+    expect(mondayFourteenth).toHaveClass('duty-grid__day-header');
+    const monthlyGrid = document.querySelector<HTMLTableElement>('.duty-grid-wrap table');
+    expect(monthlyGrid?.querySelectorAll('col.duty-grid__date-column')).toHaveLength(30);
+    expect(screen.getByRole('columnheader', { name: 'วันที่ 28 (จ.) วันทดสอบวันหยุด' })).toHaveClass('duty-grid__holiday');
+    expect(screen.getByRole('columnheader', { name: 'วันที่ 28 (จ.) วันทดสอบวันหยุด' })).toHaveAttribute('title', 'วันทดสอบวันหยุด');
+    expect(screen.getByRole('columnheader', { name: 'วันที่ 27 (อา.)' })).toHaveClass('duty-grid__weekend');
     expect(screen.getByText('28 วันทดสอบวันหยุด')).toBeInTheDocument();
 
     const summaryRow = screen.getByText('ทันตแพทย์ลงเวรต่อวัน').closest('tr');

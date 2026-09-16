@@ -81,6 +81,7 @@ await pool.query(`
     id INT PRIMARY KEY AUTO_INCREMENT,
     display_name VARCHAR(160) NOT NULL,
     professional_title VARCHAR(10) NOT NULL DEFAULT 'ทพ.',
+    specialty VARCHAR(255) NOT NULL DEFAULT 'ทันตกรรมทั่วไป',
     queue_prefix VARCHAR(12) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     UNIQUE KEY dentists_queue_prefix_unique (queue_prefix)
@@ -88,6 +89,7 @@ await pool.query(`
 `);
 await addColumnIfMissing('dentists', 'portrait_file_name', 'portrait_file_name VARCHAR(255) NULL AFTER queue_prefix');
 await addColumnIfMissing('dentists', 'professional_title', "professional_title VARCHAR(10) NOT NULL DEFAULT 'ทพ.' AFTER display_name");
+await addColumnIfMissing('dentists', 'specialty', "specialty VARCHAR(255) NOT NULL DEFAULT 'ทันตกรรมทั่วไป' AFTER professional_title");
 await pool.query("UPDATE dentists SET professional_title = CASE WHEN display_name LIKE 'ทพญ.%' THEN 'ทพญ.' ELSE 'ทพ.' END");
 await pool.query(`
   CREATE TABLE IF NOT EXISTS dentist_services (

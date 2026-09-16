@@ -1,7 +1,5 @@
 import type { TeamMember } from '../types';
-import kamolwanPortrait from '../assets/images/team-kamolwan-v1.png';
 import nattawutPortrait from '../assets/images/team-nattawut-v1.png';
-import nichaPortrait from '../assets/images/team-nicha-v1.png';
 import pimjaiPortrait from '../assets/images/team-pimjai-v1.png';
 
 export const clinicName = 'สาสุข พรีเมียม Dental Clinic';
@@ -34,26 +32,6 @@ export const teamMembers: TeamMember[] = [
     availability: 'อังคาร–เสาร์ 09:00–16:00 น.',
     image: nattawutPortrait,
     imageAlt: 'ภาพ ทพ. ณัฐวุฒิ ยิ้มแย้ม',
-  },
-  {
-    role: 'ทีมต้อนรับ',
-    name: 'คุณกมลวรรณ ใจดี',
-    credentials: 'Patient Care Coordinator',
-    focus: 'ช่วยประสานข้อมูลเบื้องต้นและเตรียมความพร้อมก่อนเข้ารับบริการ',
-    specialties: ['นัดหมาย', 'ประสานข้อมูล', 'แนะนำการเตรียมตัว'],
-    availability: 'จันทร์–ศุกร์ 08:30–16:30 น.',
-    image: kamolwanPortrait,
-    imageAlt: 'ภาพ คุณกมลวรรณ ใจดี',
-  },
-  {
-    role: 'ผู้ช่วยทันตแพทย์',
-    name: 'คุณณิชา รอยยิ้ม',
-    credentials: 'Dental Assistant',
-    focus: 'ดูแลความพร้อมระหว่างรับบริการและช่วยให้ผู้รับบริการรู้สึกผ่อนคลาย',
-    specialties: ['ดูแลข้างเก้าอี้', 'ให้คำแนะนำหลังรับบริการ', 'ประสานการดูแล'],
-    availability: 'จันทร์–เสาร์ 09:00–16:00 น.',
-    image: nichaPortrait,
-    imageAlt: 'ภาพ คุณณิชา รอยยิ้ม',
   },
 ];
 

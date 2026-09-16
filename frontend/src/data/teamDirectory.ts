@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react';
+import femaleDentistMockup from '../assets/images/team-pimjai-v1.png';
+import maleDentistMockup from '../assets/images/team-nattawut-v1.png';
 import { teamMembers } from './site';
 import type { TeamMember } from '../types';
 
@@ -9,12 +11,20 @@ const imageBase = apiBase.replace(/\/api$/, '');
 
 // เฉพาะทันตแพทย์ที่ยังมีประวัติจริงเขียนไว้ (2 ท่านแรก) ใครนอกเหนือจากนี้แสดงข้อมูลกลางที่ตรงความจริง แทนการยืมประวัติของอีกคน
 const curatedDentistBios = new Map(teamMembers.filter((member) => member.role.includes('ทันตแพทย์')).map((member) => [member.name.trim(), member]));
-const supportTeamMembers = teamMembers.filter((member) => !member.role.includes('ทันตแพทย์'));
+
+function mockPortraitFor(dentist: RegisteredDentist) {
+  return dentist.title === 'ทพญ.'
+    ? { image: femaleDentistMockup, imageAlt: `รูปตัวอย่างทันตแพทย์หญิงสำหรับ ${dentist.name}` }
+    : { image: maleDentistMockup, imageAlt: `รูปตัวอย่างทันตแพทย์ชายสำหรับ ${dentist.name}` };
+}
 
 function toTeamCard(dentist: RegisteredDentist): TeamMember {
   const curated = curatedDentistBios.get(dentist.name.trim());
-  if (curated) return { ...curated, image: dentist.portraitUrl ? `${imageBase}${dentist.portraitUrl}` : curated.image, imageAlt: dentist.portraitUrl ? `ภาพ ${dentist.name}` : curated.imageAlt };
-  return { role: 'ทันตแพทย์ทั่วไป', name: dentist.name, credentials: dentist.specialty ?? 'ทันตกรรมทั่วไป', focus: '', specialties: [], availability: '', image: dentist.portraitUrl ? `${imageBase}${dentist.portraitUrl}` : '', imageAlt: dentist.portraitUrl ? `ภาพ ${dentist.name}` : '' };
+  const portrait = dentist.portraitUrl
+    ? { image: `${imageBase}${dentist.portraitUrl}`, imageAlt: `ภาพ ${dentist.name}` }
+    : mockPortraitFor(dentist);
+  if (curated) return { ...curated, role: 'ทันตแพทย์', credentials: dentist.specialty ?? curated.credentials, ...portrait };
+  return { role: 'ทันตแพทย์', name: dentist.name, credentials: dentist.specialty ?? 'ทันตกรรมทั่วไป', focus: '', specialties: [], availability: '', ...portrait };
 }
 
 async function loadRegisteredDentists(): Promise<RegisteredDentist[]> {
@@ -48,10 +58,9 @@ function subscribeToDentistRegistry(listener: () => void) {
 
 function getDentistSnapshot() { return dentistSnapshot; }
 
-/** ทำเนียบทีมงานตัวเดียวที่ใช้ร่วมกันทั้งหน้า /team และหน้าแรก — ทันตแพทย์มาจากทะเบียนจริง
- *  (`GET /api/dentists`, จัดการที่ /staff/dentists) ต่อด้วยทีมสนับสนุนที่ยังเป็นข้อมูลกลาง (data/site.ts) */
+/** ทำเนียบทีมงานตัวเดียวที่ใช้ร่วมกันทั้งหน้า /team และหน้าแรก — แสดงเฉพาะทันตแพทย์
+ *  จากทะเบียนจริง (`GET /api/dentists`, จัดการที่ /staff/dentists) เท่านั้น */
 export function useTeamDirectory(): TeamMember[] {
   const registeredDentists = useSyncExternalStore(subscribeToDentistRegistry, getDentistSnapshot, getDentistSnapshot);
-  const dentistCards = registeredDentists === null ? [...curatedDentistBios.values()] : registeredDentists.map(toTeamCard);
-  return [...dentistCards, ...supportTeamMembers];
+  return registeredDentists?.map(toTeamCard) ?? [];
 }

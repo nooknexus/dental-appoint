@@ -18,6 +18,7 @@ const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api';
 /** ตารางปฏิบัติงานรวมของโรงพยาบาลวังทองบน Google Sheets (เปิดดูอย่างเดียว ไม่ได้เชื่อมต่อกับระบบ) */
 const wangthongScheduleUrl = 'https://docs.google.com/spreadsheets/d/1sHMXo4i7UWfFdnKy2k1ULl1zrv_lZn1a/edit?gid=661870771#gid=661870771';
 const thaiMonthNames = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const thaiWeekdayLabels = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const monthLabel = (month: string) => {
   const [year, monthNumber] = month.split('-').map(Number);
@@ -26,6 +27,10 @@ const monthLabel = (month: string) => {
 const isWeekend = (month: string, day: number) => {
   const [year, monthNumber] = month.split('-').map(Number);
   return [0, 6].includes(new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay());
+};
+const weekdayLabel = (month: string, day: number) => {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return thaiWeekdayLabels[new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay()];
 };
 
 type RosterStore = { rosters: RosterSummary[]; detail: RosterDetail | null };
@@ -60,6 +65,55 @@ function subscribeToRosterStore(listener: () => void) {
 }
 
 function getRosterSnapshot() { return rosterSnapshot; }
+
+function MonthlyDutyGrid({ detail }: { detail: RosterDetail | null }) {
+  if (!detail) return null;
+  const dutyDays = Array.from({ length: detail.roster.daysInMonth }, (_, index) => index + 1);
+  const holidayByDay = new Map(detail.holidays.map((holiday) => [holiday.day, holiday.name]));
+  const dayClassName = (day: number) => holidayByDay.has(day) ? 'duty-grid__holiday' : isWeekend(detail.roster.month, day) ? 'duty-grid__weekend' : undefined;
+  const dentistCountByDay = new Map<number, number>();
+  detail.members.forEach((member) => member.dutyDays.forEach((duty) => dentistCountByDay.set(duty.day, (dentistCountByDay.get(duty.day) ?? 0) + 1)));
+  const totalDutyCount = detail.members.reduce((sum, member) => sum + member.dutyDays.length, 0);
+
+  return <section className="user-admin-card">
+    <div className="user-admin-card__heading"><CalendarCheck2 size={25} /><div><h2>ตารางลงเวรเดือน{monthLabel(detail.roster.month)}</h2><small>{detail.roster.title || detail.roster.sourceFileName || 'ตารางปฏิบัติงานทันตแพทย์'}</small></div></div>
+    <div className="staff-table-wrap duty-grid-wrap"><table><colgroup>
+      <col className="duty-grid__sequence-column" />
+      <col className="duty-grid__dentist-column" />
+      {dutyDays.map((day) => <col className="duty-grid__date-column" key={day} />)}
+      <col className="duty-grid__total-column" />
+    </colgroup><thead><tr>
+      <th>ลำดับ</th><th>ทันตแพทย์</th>
+      {dutyDays.map((day) => {
+        const weekday = weekdayLabel(detail.roster.month, day);
+        const holiday = holidayByDay.get(day);
+        return <th key={day} scope="col" aria-label={`วันที่ ${day} (${weekday})${holiday ? ` ${holiday}` : ''}`} className={['duty-grid__day-header', dayClassName(day)].filter(Boolean).join(' ')} title={holiday}>
+          <span className="duty-grid__day-number">{day}</span><span aria-hidden="true" className="duty-grid__weekday">{weekday}</span>
+        </th>;
+      })}
+      <th>รวม</th>
+    </tr></thead><tbody>
+      {detail.members.map((member, index) => {
+        const marks = new Map(member.dutyDays.map((duty) => [duty.day, duty.mark]));
+        return <tr key={member.id}>
+          <td>{member.sequenceNo ?? index + 1}</td>
+          <td><b>{member.name}</b>{member.dentistId ? null : <><br /><small>ยังไม่จับคู่ทะเบียน</small></>}</td>
+          {dutyDays.map((day) => <td key={day} className={['duty-grid__cell', dayClassName(day)].filter(Boolean).join(' ')}>{marks.get(day) ?? ''}</td>)}
+          <td><b>{member.dutyDays.length}</b></td>
+        </tr>;
+      })}
+    </tbody><tfoot><tr className="duty-grid__summary">
+      <td colSpan={2}>ทันตแพทย์ลงเวรต่อวัน</td>
+      {dutyDays.map((day) => <td key={day} className={['duty-grid__cell', dayClassName(day)].filter(Boolean).join(' ')}>{dentistCountByDay.get(day) ?? 0}</td>)}
+      <td><b>{totalDutyCount}</b></td>
+    </tr></tfoot></table></div>
+    <div className="duty-legend">
+      <span><i className="duty-legend__swatch duty-legend__swatch--weekend" /> วันเสาร์-อาทิตย์</span>
+      <span><i className="duty-legend__swatch duty-legend__swatch--holiday" /> วันหยุดนักขัตฤกษ์{detail.holidaySource === 'fallback' ? ' (ข้อมูลสำรอง — ต่อ Google Calendar ไม่ได้)' : ''}</span>
+      {detail.holidays.length ? <small>{detail.holidays.map((holiday) => `${holiday.day} ${holiday.name}`).join(' · ')}</small> : <small>เดือนนี้ไม่มีวันหยุดนักขัตฤกษ์</small>}
+    </div>
+  </section>;
+}
 
 export function StaffDutyRosterPage() {
   const role = getStaffRole();
@@ -147,13 +201,6 @@ export function StaffDutyRosterPage() {
     } catch { notify('ลบทะเบียนลงเวรไม่สำเร็จ', 'error'); } finally { setBusy(false); }
   };
 
-  const dutyDays = detail ? Array.from({ length: detail.roster.daysInMonth }, (_, index) => index + 1) : [];
-  const holidayByDay = new Map((detail?.holidays ?? []).map((holiday) => [holiday.day, holiday.name]));
-  const dayClassName = (month: string, day: number) => holidayByDay.has(day) ? 'duty-grid__holiday' : isWeekend(month, day) ? 'duty-grid__weekend' : undefined;
-  const dentistCountByDay = new Map<number, number>();
-  detail?.members.forEach((member) => member.dutyDays.forEach((duty) => dentistCountByDay.set(duty.day, (dentistCountByDay.get(duty.day) ?? 0) + 1)));
-  const totalDutyCount = detail?.members.reduce((sum, member) => sum + member.dutyDays.length, 0) ?? 0;
-
   return <section className="staff-page"><div className="container">
     <p className="eyebrow">Staff · Duty Roster</p>
     <h1>ทะเบียนลงเวรทันตแพทย์</h1>
@@ -214,33 +261,7 @@ export function StaffDutyRosterPage() {
       </article>)}</div>
     </section>
 
-    {detail && <section className="user-admin-card">
-      <div className="user-admin-card__heading"><CalendarCheck2 size={25} /><div><h2>ตารางลงเวรเดือน{monthLabel(detail.roster.month)}</h2><small>{detail.roster.title || detail.roster.sourceFileName || 'ตารางปฏิบัติงานทันตแพทย์'}</small></div></div>
-      <div className="staff-table-wrap duty-grid-wrap"><table><thead><tr>
-        <th>ลำดับ</th><th>ทันตแพทย์</th>
-        {dutyDays.map((day) => <th key={day} className={dayClassName(detail.roster.month, day)} title={holidayByDay.get(day)}>{day}</th>)}
-        <th>รวม</th>
-      </tr></thead><tbody>
-        {detail.members.map((member, index) => {
-          const marks = new Map(member.dutyDays.map((duty) => [duty.day, duty.mark]));
-          return <tr key={member.id}>
-            <td>{member.sequenceNo ?? index + 1}</td>
-            <td><b>{member.name}</b>{member.dentistId ? null : <><br /><small>ยังไม่จับคู่ทะเบียน</small></>}</td>
-            {dutyDays.map((day) => <td key={day} className={['duty-grid__cell', dayClassName(detail.roster.month, day)].filter(Boolean).join(' ')}>{marks.get(day) ?? ''}</td>)}
-            <td><b>{member.dutyDays.length}</b></td>
-          </tr>;
-        })}
-      </tbody><tfoot><tr className="duty-grid__summary">
-        <td colSpan={2}>ทันตแพทย์ลงเวรต่อวัน</td>
-        {dutyDays.map((day) => <td key={day} className={['duty-grid__cell', dayClassName(detail.roster.month, day)].filter(Boolean).join(' ')}>{dentistCountByDay.get(day) ?? 0}</td>)}
-        <td><b>{totalDutyCount}</b></td>
-      </tr></tfoot></table></div>
-      <div className="duty-legend">
-        <span><i className="duty-legend__swatch duty-legend__swatch--weekend" /> วันเสาร์-อาทิตย์</span>
-        <span><i className="duty-legend__swatch duty-legend__swatch--holiday" /> วันหยุดนักขัตฤกษ์{detail.holidaySource === 'fallback' ? ' (ข้อมูลสำรอง — ต่อ Google Calendar ไม่ได้)' : ''}</span>
-        {detail.holidays.length ? <small>{detail.holidays.map((holiday) => `${holiday.day} ${holiday.name}`).join(' · ')}</small> : <small>เดือนนี้ไม่มีวันหยุดนักขัตฤกษ์</small>}
-      </div>
-    </section>}
+    <MonthlyDutyGrid detail={detail} />
     <Toast onDismiss={dismissToast} toast={toast} />
   </div></section>;
 }

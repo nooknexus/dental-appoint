@@ -101,6 +101,8 @@ clinic-dental-spa/
   แดง/`role="alert"` สำหรับผิดพลาด ปิดเองใน 6 วินาทีหรือกดปิดเองได้ หน้าใหม่ที่ต้องแจ้งผลการทำงาน
   ให้ใช้ `const { toast, notify, dismissToast } = useToast();` แล้ววาง `<Toast toast={toast} onDismiss={dismissToast} />`
   ไว้ท้าย JSX ที่คืนค่า อย่าใช้ `<p className="booking-message">` หรือให้ข้อความ error แทนที่เนื้อหาหลักของหน้า
+- การยืนยันการกระทำที่มีผลเปลี่ยนแปลง/ลบข้อมูลในหน้า staff ต้องใช้ HTML `<dialog>` modal ของระบบ (ห้ามใช้
+  `window.confirm`) และผลสำเร็จหรือผิดพลาดหลังดำเนินการต้องแจ้งผ่าน toast เสมอ
 
 ### Backend
 
@@ -736,4 +738,3 @@ npx vitest run src/domain/booking.test.ts src/services/mophAlert.test.ts
 | MOPH Alert | `SystemSettingsPage.tsx`, `mophAlert.ts`, delivery code ใน `app.ts` |
 | Database | `api/src/scripts/migrate.ts`, `seed.ts`, SQL queries ใน `app.ts` |
 | Test contract | `api/src/*.test.ts`, `api/src/domain/*.test.ts`, `frontend/src/__tests__/app.test.tsx` |
-

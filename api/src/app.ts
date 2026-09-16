@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import cors from 'cors';
@@ -540,17 +541,17 @@ app.get('/api/services', async (_request, response) => {
 app.get('/api/services/:serviceId/dentists', async (request, response) => {
   const serviceId = Number(request.params.serviceId);
   const [dentists] = await pool.query<RowDataPacket[]>(
-    `SELECT d.id, d.display_name AS displayName
+    `SELECT d.id, d.display_name AS displayName, d.specialty AS specialty
      FROM dentists d JOIN dentist_services ds ON ds.dentist_id = d.id
      WHERE ds.service_id = ? AND d.active = TRUE ORDER BY d.display_name`,
     [serviceId],
   );
-  response.json({ dentists: dentists.map((dentist) => ({ id: dentist.id, code: `DENTIST-${dentist.id}`, name: dentist.displayName, specialty: 'ทันตกรรมทั่วไป' })) });
+  response.json({ dentists: dentists.map((dentist) => ({ id: dentist.id, code: `DENTIST-${dentist.id}`, name: dentist.displayName, specialty: dentist.specialty })) });
 });
 
 app.get('/api/dentists', async (_request, response) => {
-  const [dentists] = await pool.query<RowDataPacket[]>('SELECT id, display_name AS name, professional_title AS title, portrait_file_name AS portraitFileName FROM dentists WHERE active = TRUE ORDER BY display_name');
-  response.json({ dentists: dentists.map((dentist) => ({ id: dentist.id, name: dentist.name, title: dentist.title, specialty: 'ทันตกรรมทั่วไป', portraitUrl: dentist.portraitFileName ? `/api/dentists/${dentist.id}/portrait` : null })) });
+  const [dentists] = await pool.query<RowDataPacket[]>('SELECT id, display_name AS name, professional_title AS title, specialty, portrait_file_name AS portraitFileName FROM dentists WHERE active = TRUE ORDER BY display_name');
+  response.json({ dentists: dentists.map((dentist) => ({ id: dentist.id, name: dentist.name, title: dentist.title, specialty: dentist.specialty, portraitUrl: dentist.portraitFileName ? `/api/dentists/${dentist.id}/portrait` : null })) });
 });
 
 app.get('/api/dentists/:dentistId/portrait', async (request, response, next) => {
@@ -1155,6 +1156,26 @@ app.post('/api/staff/slots', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+/** ลบได้เฉพาะสล็อตที่ยังไม่มีนัดหมายเลย: lock สล็อตก่อนตรวจเพื่อไม่ให้ชนกับการจองที่กำลังเกิดขึ้น */
+app.delete('/api/staff/slots/:id', async (request, response, next) => {
+  try {
+    if (!await requireStaff(request, response, ['CLINIC_STAFF'])) return;
+    const slotId = Number(request.params.id);
+    if (!Number.isInteger(slotId) || slotId <= 0) return response.status(404).json({ message: 'ไม่พบสล็อตที่ต้องการลบ' });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [slots] = await connection.query<RowDataPacket[]>('SELECT id FROM booking_slots WHERE id = ? FOR UPDATE', [slotId]);
+      if (!slots[0]) { await connection.rollback(); return response.status(404).json({ message: 'ไม่พบสล็อตที่ต้องการลบ' }); }
+      const [appointments] = await connection.query<RowDataPacket[]>('SELECT id FROM appointments WHERE slot_id = ? LIMIT 1', [slotId]);
+      if (appointments[0]) { await connection.rollback(); return response.status(409).json({ message: 'ไม่สามารถลบสล็อตที่มีการจองแล้วได้' }); }
+      await connection.query('DELETE FROM booking_slots WHERE id = ?', [slotId]);
+      await connection.commit();
+      return response.json({ message: 'ลบสล็อตเรียบร้อยแล้ว' });
+    } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+  } catch (error) { return next(error); }
+});
+
 app.get('/api/staff/settings', async (request, response) => {
   if (!await requireStaff(request, response, ['IT_STAFF'])) return;
   const [services] = await pool.query<RowDataPacket[]>("SELECT id, title, category, duration_minutes AS durationMinutes, price_label AS priceLabel, active FROM services WHERE category <> 'รายการเดิม' ORDER BY category, id");
@@ -1259,11 +1280,11 @@ app.patch('/api/staff/system-settings/clinic-types', async (request, response, n
 app.get('/api/staff/dentists', async (request, response) => {
   if (!await requireStaff(request, response, ['IT_STAFF'])) return;
   const [services] = await pool.query<RowDataPacket[]>("SELECT id, title, category FROM services WHERE active = TRUE AND category <> 'รายการเดิม' ORDER BY category, id");
-  const [dentists] = await pool.query<RowDataPacket[]>('SELECT id, display_name AS displayName, professional_title AS title, queue_prefix AS queuePrefix, portrait_file_name AS portraitFileName, active FROM dentists ORDER BY active DESC, display_name');
+  const [dentists] = await pool.query<RowDataPacket[]>('SELECT id, display_name AS displayName, professional_title AS title, specialty, queue_prefix AS queuePrefix, portrait_file_name AS portraitFileName, active FROM dentists ORDER BY active DESC, display_name');
   const [assignments] = await pool.query<RowDataPacket[]>(`SELECT ds.dentist_id AS dentistId, ds.service_id AS serviceId FROM dentist_services ds JOIN services s ON s.id = ds.service_id WHERE s.active = TRUE AND s.category <> 'รายการเดิม'`);
   const serviceIdsByDentist = new Map<number, number[]>();
   assignments.forEach((assignment) => { const serviceIds = serviceIdsByDentist.get(assignment.dentistId) ?? []; serviceIds.push(assignment.serviceId); serviceIdsByDentist.set(assignment.dentistId, serviceIds); });
-  response.json({ bookingFlow: await bookingFlow(), services, dentists: dentists.map((dentist) => ({ id: dentist.id, displayName: dentist.displayName, title: dentist.title, queuePrefix: dentist.queuePrefix, portraitUrl: dentist.portraitFileName ? `/api/dentists/${dentist.id}/portrait` : null, active: Boolean(dentist.active), serviceIds: serviceIdsByDentist.get(dentist.id) ?? [] })) });
+  response.json({ bookingFlow: await bookingFlow(), services, dentists: dentists.map((dentist) => ({ id: dentist.id, displayName: dentist.displayName, title: dentist.title, specialty: dentist.specialty, queuePrefix: dentist.queuePrefix, portraitUrl: dentist.portraitFileName ? `/api/dentists/${dentist.id}/portrait` : null, active: Boolean(dentist.active), serviceIds: serviceIdsByDentist.get(dentist.id) ?? [] })) });
 });
 
 app.post('/api/staff/dentists', async (request, response, next) => {
@@ -1272,10 +1293,11 @@ app.post('/api/staff/dentists', async (request, response, next) => {
     const input = z.object({
       displayName: z.string().trim().min(2).max(160),
       title: z.enum(['ทพ.', 'ทพญ.']),
+      specialty: z.string().trim().min(2).max(255),
       queuePrefix: z.string().trim().min(1).max(12).regex(/^[A-Z0-9-]+$/),
     }).parse(request.body);
-    const [result] = await pool.query<ResultSetHeader>('INSERT INTO dentists (display_name, professional_title, queue_prefix, active) VALUES (?, ?, ?, TRUE)', [input.displayName, input.title, input.queuePrefix]);
-    return response.status(201).json({ dentist: { id: result.insertId, displayName: input.displayName, title: input.title, queuePrefix: input.queuePrefix, portraitUrl: null, active: true, serviceIds: [] } });
+    const [result] = await pool.query<ResultSetHeader>('INSERT INTO dentists (display_name, professional_title, specialty, queue_prefix, active) VALUES (?, ?, ?, ?, TRUE)', [input.displayName, input.title, input.specialty, input.queuePrefix]);
+    return response.status(201).json({ dentist: { id: result.insertId, displayName: input.displayName, title: input.title, specialty: input.specialty, queuePrefix: input.queuePrefix, portraitUrl: null, active: true, serviceIds: [] } });
   } catch (error) { return next(error); }
 });
 
@@ -1300,6 +1322,39 @@ app.patch('/api/staff/dentists/:id', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+app.delete('/api/staff/dentists/:id', async (request, response, next) => {
+  try {
+    if (!await requireStaff(request, response, ['IT_STAFF'])) return;
+    const dentistId = Number(request.params.id);
+    if (!Number.isInteger(dentistId) || dentistId <= 0) return response.status(404).json({ message: 'ไม่พบทันตแพทย์ในทะเบียน' });
+    const connection = await pool.getConnection();
+    let portraitFileName: string | null = null;
+    try {
+      await connection.beginTransaction();
+      const [dentists] = await connection.query<RowDataPacket[]>('SELECT portrait_file_name AS portraitFileName FROM dentists WHERE id = ? FOR UPDATE', [dentistId]);
+      if (!dentists[0]) { await connection.rollback(); return response.status(404).json({ message: 'ไม่พบทันตแพทย์ในทะเบียน' }); }
+      portraitFileName = dentists[0].portraitFileName ? String(dentists[0].portraitFileName) : null;
+      const [[dependencies]] = await connection.query<RowDataPacket[]>(
+        `SELECT
+          (SELECT COUNT(*) FROM booking_slots WHERE dentist_id = ?) AS slotCount,
+          (SELECT COUNT(*) FROM appointments WHERE dentist_id = ?) AS appointmentCount,
+          (SELECT COUNT(*) FROM duty_roster_members WHERE dentist_id = ?) AS dutyCount,
+          (SELECT COUNT(*) FROM satisfaction_surveys WHERE dentist_id = ?) AS surveyCount`,
+        [dentistId, dentistId, dentistId, dentistId],
+      );
+      if (Object.values(dependencies).some((count) => Number(count) > 0)) {
+        await connection.rollback();
+        return response.status(409).json({ message: 'ไม่สามารถลบทันตแพทย์ที่มีสล็อต นัดหมาย หรือประวัติลงเวรแล้วได้ กรุณาปิดใช้งานแทน' });
+      }
+      await connection.query('DELETE FROM dentist_services WHERE dentist_id = ?', [dentistId]);
+      await connection.query('DELETE FROM dentists WHERE id = ?', [dentistId]);
+      await connection.commit();
+    } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+    if (portraitFileName) await unlink(join(uploadDirectory, basename(portraitFileName))).catch(() => undefined);
+    return response.json({ message: 'ลบรายชื่อทันตแพทย์เรียบร้อยแล้ว' });
+  } catch (error) { return next(error); }
+});
+
 app.patch('/api/staff/services/:id', async (request, response, next) => {
   try {
     if (!await requireStaff(request, response, ['IT_STAFF'])) return;
@@ -1315,19 +1370,22 @@ app.patch('/api/staff/services/:id', async (request, response, next) => {
 async function weeklyDutySchedule() {
   const { start, end } = currentWeekRange();
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT d.id AS dentistId, d.display_name AS displayName, d.portrait_file_name AS portraitFileName,
+    `SELECT m.id AS rosterMemberId, m.dentist_id AS dentistId, COALESCE(d.display_name, m.source_name) AS displayName,
+            d.portrait_file_name AS portraitFileName,
             DATE_FORMAT(dd.duty_date, '%Y-%m-%d') AS date
      FROM duty_roster_days dd
      JOIN duty_roster_members m ON m.id = dd.member_id
-     JOIN dentists d ON d.id = m.dentist_id
-     WHERE dd.duty_date BETWEEN ? AND ? AND d.active = TRUE
+     LEFT JOIN dentists d ON d.id = m.dentist_id
+     WHERE dd.duty_date BETWEEN ? AND ? AND (d.id IS NULL OR d.active = TRUE)
      ORDER BY d.display_name, dd.duty_date`,
     [start, end],
   );
   const dentistsById = new Map<number, { id: number; displayName: string; portraitUrl: string | null; dates: string[] }>();
   rows.forEach((row) => {
-    const dentistId = Number(row.dentistId);
-    if (!dentistsById.has(dentistId)) dentistsById.set(dentistId, { id: dentistId, displayName: String(row.displayName), portraitUrl: row.portraitFileName ? `/api/dentists/${dentistId}/portrait` : null, dates: [] });
+    // แถวที่นำเข้าจากตารางเวรอาจยังไม่ได้จับคู่ dentist_id — ให้แสดง source_name บนตารางสาธารณะ
+    // โดยใช้ id ติดลบเฉพาะเป็น React/API key จนกว่าเจ้าหน้าที่จะจับคู่รายชื่อในทะเบียน
+    const dentistId = row.dentistId === null ? -Number(row.rosterMemberId) : Number(row.dentistId);
+    if (!dentistsById.has(dentistId)) dentistsById.set(dentistId, { id: dentistId, displayName: String(row.displayName), portraitUrl: row.portraitFileName && dentistId > 0 ? `/api/dentists/${dentistId}/portrait` : null, dates: [] });
     dentistsById.get(dentistId)!.dates.push(String(row.date));
   });
   return { weekStart: start, weekEnd: end, dentists: [...dentistsById.values()] };
@@ -1717,6 +1775,17 @@ app.put('/api/staff/dentists/:id/queue-prefix', async (request, response, next) 
     const [result] = await pool.query<ResultSetHeader>('UPDATE dentists SET queue_prefix = ? WHERE id = ? AND active = TRUE', [input.queuePrefix, Number(request.params.id)]);
     if (!result.affectedRows) return response.status(404).json({ message: 'ไม่พบทันตแพทย์ในทะเบียน' });
     return response.json({ message: 'บันทึกอักษรนำหน้าคิวเรียบร้อยแล้ว' });
+  } catch (error) { return next(error); }
+});
+
+app.put('/api/staff/dentists/:id/specialty', async (request, response, next) => {
+  try {
+    if (!await requireStaff(request, response, ['IT_STAFF'])) return;
+    const input = z.object({ specialty: z.string().trim().min(2).max(255) }).parse(request.body);
+    const dentistId = Number(request.params.id);
+    const [result] = await pool.query<ResultSetHeader>('UPDATE dentists SET specialty = ? WHERE id = ? AND active = TRUE', [input.specialty, dentistId]);
+    if (!result.affectedRows) return response.status(404).json({ message: 'ไม่พบทันตแพทย์ในทะเบียน' });
+    return response.json({ message: 'บันทึกความเชี่ยวชาญของทันตแพทย์เรียบร้อยแล้ว', dentist: { id: dentistId, specialty: input.specialty } });
   } catch (error) { return next(error); }
 });
 

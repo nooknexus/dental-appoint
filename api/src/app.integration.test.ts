@@ -229,6 +229,38 @@ describe('appointment API contract', () => {
     }
   });
 
+  it('lets Clinic Staff delete an unbooked slot but preserves a slot with an appointment', async () => {
+    const date = '2099-12-29';
+    const patientIdentity = '1103700999001';
+    const initial = await request(app).get('/api/staff/system-settings').set('x-mock-role', 'IT_STAFF');
+    try {
+      await request(app).patch('/api/staff/system-settings/booking-flow').set('x-mock-role', 'IT_STAFF').send({ bookingFlow: 'TIME_ONLY' });
+      await request(app).post('/api/staff/slots').set('x-mock-role', 'CLINIC_STAFF').send({ date, startTimes: ['09:00', '09:30'], capacity: 1 });
+      const availability = await request(app).get(`/api/availability?date=${date}`);
+      const emptySlotId = availability.body.slots.find((slot: { startsAt: string }) => slot.startsAt === `${date}T09:00:00+07:00`).id;
+      const bookedSlotId = availability.body.slots.find((slot: { startsAt: string }) => slot.startsAt === `${date}T09:30:00+07:00`).id;
+      const booking = await request(app).post('/api/appointments').set('Cookie', await patientCookie(patientIdentity, 'นายทดสอบลบสล็อต')).send({ slotId: bookedSlotId, phone: '0812345678' });
+      expect(booking.status).toBe(201);
+
+      const removed = await request(app).delete(`/api/staff/slots/${emptySlotId}`).set('x-mock-role', 'CLINIC_STAFF');
+      expect(removed.status).toBe(200);
+      const blocked = await request(app).delete(`/api/staff/slots/${bookedSlotId}`).set('x-mock-role', 'CLINIC_STAFF');
+      expect(blocked.status).toBe(409);
+
+      const remaining = await request(app).get(`/api/staff/slots?date=${date}`).set('x-mock-role', 'CLINIC_STAFF');
+      expect(remaining.body.slots).toEqual([expect.objectContaining({ id: bookedSlotId, bookedCount: 1 })]);
+    } finally {
+      await pool.query('DELETE ash FROM appointment_status_history ash INNER JOIN appointments a ON a.id = ash.appointment_id INNER JOIN booking_slots bs ON bs.id = a.slot_id WHERE bs.dentist_id IS NULL AND bs.service_date = ?', [date]);
+      await pool.query('DELETE pvr FROM patient_visit_registry pvr INNER JOIN appointments a ON a.id = pvr.appointment_id INNER JOIN booking_slots bs ON bs.id = a.slot_id WHERE bs.dentist_id IS NULL AND bs.service_date = ?', [date]);
+      await pool.query('DELETE nd FROM notification_deliveries nd INNER JOIN appointments a ON a.id = nd.appointment_id INNER JOIN booking_slots bs ON bs.id = a.slot_id WHERE bs.dentist_id IS NULL AND bs.service_date = ?', [date]);
+      await pool.query('DELETE a FROM appointments a INNER JOIN booking_slots bs ON bs.id = a.slot_id WHERE bs.dentist_id IS NULL AND bs.service_date = ?', [date]);
+      await pool.query('DELETE FROM booking_slots WHERE dentist_id IS NULL AND service_date = ?', [date]);
+      await pool.query('DELETE FROM queue_counters WHERE service_date = ? AND queue_prefix = ?', [date, 'CLN']);
+      await pool.query('DELETE FROM patient_registry WHERE patient_identity = ?', [patientIdentity]);
+      await request(app).patch('/api/staff/system-settings/booking-flow').set('x-mock-role', 'IT_STAFF').send({ bookingFlow: initial.body.bookingFlow });
+    }
+  });
+
   it('lets a patient book a central-clinic slot without selecting a dentist', async () => {
     const date = '2099-12-26';
     const patientIdentity = 'CENTRAL-QUEUE-BOOKING-TEST';
@@ -578,6 +610,7 @@ describe('appointment API contract', () => {
     const displayName = `ทพ. ทดสอบ ${suffix}`;
     const queuePrefix = `TEST${suffix}`.slice(0, 12);
     const title = 'ทพ.';
+    const specialty = 'ทันตกรรมสำหรับเด็ก';
     let dentistId: number | undefined;
     try {
       const clinicAttempt = await request(app)
@@ -589,9 +622,9 @@ describe('appointment API contract', () => {
       const created = await request(app)
         .post('/api/staff/dentists')
         .set('x-mock-role', 'IT_STAFF')
-        .send({ displayName, queuePrefix, title });
+        .send({ displayName, queuePrefix, title, specialty });
       expect(created.status).toBe(201);
-      expect(created.body.dentist).toMatchObject({ displayName, queuePrefix, title, active: true, serviceIds: [] });
+      expect(created.body.dentist).toMatchObject({ displayName, queuePrefix, title, specialty, active: true, serviceIds: [] });
       dentistId = created.body.dentist.id;
 
       const portrait = await request(app)
@@ -603,7 +636,20 @@ describe('appointment API contract', () => {
 
       const publicTeamWithPortrait = await request(app).get('/api/dentists');
       expect(publicTeamWithPortrait.body.dentists).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: dentistId, title, portraitUrl: `/api/dentists/${dentistId}/portrait` }),
+        expect.objectContaining({ id: dentistId, title, specialty, portraitUrl: `/api/dentists/${dentistId}/portrait` }),
+      ]));
+
+      const revisedSpecialty = 'ทันตกรรมจัดฟัน';
+      const specialtyUpdate = await request(app)
+        .put(`/api/staff/dentists/${dentistId}/specialty`)
+        .set('x-mock-role', 'IT_STAFF')
+        .send({ specialty: revisedSpecialty });
+      expect(specialtyUpdate.status).toBe(200);
+      expect(specialtyUpdate.body.dentist).toMatchObject({ id: dentistId, specialty: revisedSpecialty });
+
+      const publicTeamWithRevisedSpecialty = await request(app).get('/api/dentists');
+      expect(publicTeamWithRevisedSpecialty.body.dentists).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: dentistId, specialty: revisedSpecialty }),
       ]));
 
       const portraitFile = await request(app).get(`/api/dentists/${dentistId}/portrait`);
@@ -631,6 +677,25 @@ describe('appointment API contract', () => {
     } finally {
       if (dentistId) await pool.query('DELETE FROM dentists WHERE id = ?', [dentistId]);
     }
+  });
+
+  it('lets IT Staff permanently delete an unused dentist without leaving it in the public team', async () => {
+    const suffix = Date.now();
+    const created = await request(app)
+      .post('/api/staff/dentists')
+      .set('x-mock-role', 'IT_STAFF')
+      .send({ displayName: `ทพ. ลบทดสอบ ${suffix}`, title: 'ทพ.', specialty: 'ทันตกรรมทั่วไป', queuePrefix: `DEL${suffix}`.slice(0, 12) });
+    expect(created.status).toBe(201);
+    const dentistId = created.body.dentist.id as number;
+
+    const denied = await request(app).delete(`/api/staff/dentists/${dentistId}`).set('x-mock-role', 'CLINIC_STAFF');
+    expect(denied.status).toBe(403);
+
+    const deleted = await request(app).delete(`/api/staff/dentists/${dentistId}`).set('x-mock-role', 'IT_STAFF');
+    expect(deleted.status).toBe(200);
+
+    const publicTeam = await request(app).get('/api/dentists');
+    expect(publicTeam.body.dentists).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: dentistId })]));
   });
 
   it('lets only IT Staff maintain the procedures assigned to each dentist', async () => {
@@ -970,8 +1035,12 @@ describe('appointment API contract', () => {
     const before = await request(app).get(`/api/staff/duty-rosters/${monthOfToday}`).set('x-mock-role', 'CLINIC_STAFF');
     const existingRoster = before.status === 200 ? before.body as RosterDetailForRestore : null;
 
+    const unmatchedRosterName = 'ทพ. ตารางเวรนำเข้า';
     await request(app).post('/api/staff/duty-rosters').set('x-mock-role', 'CLINIC_STAFF')
-      .send({ month: monthOfToday, rows: [{ sequenceNo: 1, name: 'ทดสอบตารางรายสัปดาห์', dentistId, days: [{ day: today.getUTCDate(), mark: '/' }] }] });
+      .send({ month: monthOfToday, rows: [
+        { sequenceNo: 1, name: 'ทดสอบตารางรายสัปดาห์', dentistId, days: [{ day: today.getUTCDate(), mark: '/' }] },
+        { sequenceNo: 2, name: unmatchedRosterName, dentistId: null, days: [{ day: today.getUTCDate(), mark: '/' }] },
+      ] });
 
     try {
       const schedule = await request(app).get('/api/dentists/weekly-duty-schedule');
@@ -980,6 +1049,9 @@ describe('appointment API contract', () => {
       const entry = schedule.body.dentists.find((dentist: { id: number }) => dentist.id === dentistId);
       expect(entry).toBeDefined();
       expect(entry.dates).toContain(isoToday);
+      const importedOnlyEntry = schedule.body.dentists.find((dentist: { displayName: string }) => dentist.displayName === unmatchedRosterName);
+      expect(importedOnlyEntry).toBeDefined();
+      expect(importedOnlyEntry.dates).toContain(isoToday);
     } finally {
       if (existingRoster) {
         await request(app).post('/api/staff/duty-rosters').set('x-mock-role', 'CLINIC_STAFF').send({

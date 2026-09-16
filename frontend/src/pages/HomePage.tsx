@@ -3,9 +3,9 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
+  HeartHandshake,
   HeartPulse,
   MessageCircle,
-  ShieldCheck,
   UsersRound,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -21,9 +21,9 @@ import { usePublicServices } from '../services/publicServices';
 
 const trustHighlights = [
   {
-    icon: ShieldCheck,
-    title: 'มาตรฐานการบริการ',
-    description: 'ดูแลตามมาตรฐานทางทันตกรรม',
+    icon: HeartHandshake,
+    title: 'การดูแลด้วยความใส่ใจ',
+    description: 'รับฟังความต้องการและให้คำแนะนำอย่างเหมาะสม',
   },
   {
     icon: HeartPulse,
@@ -57,10 +57,10 @@ export function HomePage() {
         <div className="container hero__grid">
           <div className="hero__copy">
             <p className="eyebrow eyebrow--light">สาสุข พรีเมียม Dental Clinic</p>
-            <h1>ดูแลทุกรอยยิ้มด้วยมาตรฐานและความใส่ใจ</h1>
+            <h1>ดูแลทุกรอยยิ้มด้วยความใส่ใจ</h1>
             <p className="hero__lead">
               คลินิกทันตกรรม สำนักงานสาธารณสุขจังหวัดพิษณุโลก พร้อมให้บริการด้านสุขภาพช่องปาก
-              โดยทีมทันตบุคลากร ภายใต้มาตรฐานการบริการที่ให้ความสำคัญกับผู้รับบริการ
+              โดยทีมทันตบุคลากรที่ให้ความสำคัญกับผู้รับบริการ
             </p>
             <div className="hero__actions">
               <Link className="button button--gold" to="/appointment">
@@ -148,7 +148,7 @@ export function HomePage() {
             <h2 id="home-about-title">มากกว่าการรักษา คือการดูแลทุกรอยยิ้ม</h2>
             <p>
               สาสุข พรีเมียม Dental Clinic เป็นคลินิกทันตกรรมภายใต้สำนักงานสาธารณสุขจังหวัดพิษณุโลก
-              มุ่งให้บริการด้านสุขภาพช่องปากภายใต้มาตรฐานวิชาชีพ พร้อมให้ความสำคัญกับคุณภาพการบริการและประสบการณ์ของผู้รับบริการ
+              มุ่งให้บริการด้านสุขภาพช่องปาก พร้อมให้ความสำคัญกับคุณภาพการบริการและประสบการณ์ของผู้รับบริการ
             </p>
             <Link className="text-link" to="/about">
               รู้จักแนวทางของเรา <ArrowRight aria-hidden="true" size={17} />

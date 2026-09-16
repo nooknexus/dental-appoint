@@ -38,6 +38,9 @@ export function TeamPage() {
   const directory = useTeamDirectory();
   const schedule = useWeeklyDutySchedule();
   const days = schedule ? weekDates(schedule.weekStart) : [];
+  const onDutyDirectory = schedule
+    ? directory.filter((member) => schedule.dentists.some((dentist) => dentist.displayName === member.name))
+    : [];
 
   return (
     <>
@@ -54,8 +57,8 @@ export function TeamPage() {
               <h2 id="team-list-title">พบกับทีมที่พร้อมดูแลคุณ</h2>
             </div>
           </div>
-          <div className="team-grid team-grid--directory">
-            {directory.map((member, index) => (
+          {schedule && onDutyDirectory.length > 0 ? <div className="team-grid team-grid--directory">
+            {onDutyDirectory.map((member, index) => (
               <article className="team-card team-card--full" key={member.name}>
                 {member.image
                   ? <img alt={member.imageAlt} className="team-card__portrait" decoding="async" loading={index === 0 ? 'eager' : 'lazy'} src={member.image} />
@@ -71,7 +74,7 @@ export function TeamPage() {
                 <span className="team-card__index">0{index + 1}</span>
               </article>
             ))}
-          </div>
+          </div> : <p className="section-copy">{schedule ? 'สัปดาห์นี้ยังไม่มีรายชื่อทันตแพทย์ที่ออกตรวจ' : 'กำลังโหลดรายชื่อทันตแพทย์ที่ออกตรวจ...'}</p>}
         </div>
       </section>
       <section className="section section--soft" aria-labelledby="weekly-schedule-title">
