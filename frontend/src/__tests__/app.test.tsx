@@ -1652,7 +1652,7 @@ describe('clinic SPA', () => {
           id: 501, dentistId: null, dentistName: 'คิวกลางคลินิก', startTime: '09:00', endTime: '09:30', capacity: 2, bookedCount: 1, active: true,
           appointments: [{
             id: 9001, reference: 'APT-QUEUE-1', queueNumber: 'CLN001', patientIdentityMasked: '110******3456', patientName: 'คุณรอคิว ทดสอบ',
-            phone: '0812345678', status: 'PENDING_CONFIRMATION', paymentStatus: 'NOT_REQUIRED', visitStatus: 'BOOKED', serviceName: 'คิวกลางคลินิก', notes: '', slipAvailable: false,
+            phone: '0812345678', status: 'PENDING_CONFIRMATION', paymentStatus: 'NOT_REQUIRED', visitStatus: 'BOOKED', serviceName: 'คิวกลางคลินิก', notes: 'แพ้ยากลุ่มเพนิซิลลิน', slipAvailable: false,
           }],
         }],
         dentists: [],
@@ -1680,6 +1680,8 @@ describe('clinic SPA', () => {
       expect(await screen.findByText('CLN001')).toBeInTheDocument();
       expect(screen.getByText('คุณรอคิว ทดสอบ')).toBeInTheDocument();
       expect(screen.getByText('110******3456')).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: 'หมายเหตุ' })).toBeInTheDocument();
+      expect(screen.getByText('แพ้ยากลุ่มเพนิซิลลิน')).toBeInTheDocument();
       expect(screen.getByText('นัดรอคอนเฟิร์ม')).toBeInTheDocument();
       expect(screen.getByText('1/2 ที่นั่ง')).toBeInTheDocument();
     });
@@ -1723,10 +1725,11 @@ describe('clinic SPA', () => {
       await user.type(within(dialog).getByLabelText('ชื่อ-สกุล'), 'คุณวอล์กอิน ทดสอบ');
       await user.type(within(dialog).getByLabelText('เบอร์โทร'), '0898765432');
       await user.type(within(dialog).getByLabelText('เลขบัตรประชาชน*'), '1109900001199');
+      await user.type(within(dialog).getByLabelText('หมายเหตุ'), 'ใช้รถเข็น');
       await user.click(within(dialog).getByRole('button', { name: 'เพิ่มคิว' }));
 
       expect(await screen.findByText('เพิ่มคิว CLN002 เรียบร้อยแล้ว')).toBeInTheDocument();
-      expect(walkInBody).toMatchObject({ slotId: 501, patientDisplayName: 'คุณวอล์กอิน ทดสอบ', phone: '0898765432', citizenId: '1109900001199' });
+      expect(walkInBody).toMatchObject({ slotId: 501, patientDisplayName: 'คุณวอล์กอิน ทดสอบ', phone: '0898765432', citizenId: '1109900001199', notes: 'ใช้รถเข็น' });
       expect(dayQueueCalls).toBeGreaterThanOrEqual(2);
     });
 

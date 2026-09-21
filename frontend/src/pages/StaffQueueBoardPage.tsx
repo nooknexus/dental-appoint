@@ -162,7 +162,7 @@ export function StaffQueueBoardPage() {
       </div>
       <div className="staff-table-wrap">
         <table>
-          <thead><tr><th>คิว</th><th>ชื่อ-สกุล</th><th>เลขบัตร</th><th>เบอร์โทร</th><th>บริการ</th><th>สถานะนัด</th><th>การชำระเงิน</th><th>มาตามนัด</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th>คิว</th><th>ชื่อ-สกุล</th><th>เลขบัตร</th><th>เบอร์โทร</th><th>บริการ</th><th>หมายเหตุ</th><th>สถานะนัด</th><th>การชำระเงิน</th><th>มาตามนัด</th><th>จัดการ</th></tr></thead>
           <tbody>
             {slot.appointments.length ? slot.appointments.map((appointment) => <tr className={appointment.status === 'CANCELLED' ? 'queue-cancelled-row' : undefined} key={appointment.id}>
               <td><b>{appointment.queueNumber}</b></td>
@@ -170,6 +170,7 @@ export function StaffQueueBoardPage() {
               <td>{appointment.patientIdentityMasked}</td>
               <td>{appointment.phone}</td>
               <td>{appointment.serviceName}</td>
+              <td>{appointment.notes || '—'}</td>
               <td>{appointmentStatusLabels[appointment.status] ?? appointment.status}</td>
               <td>{paymentStatusLabels[appointment.paymentStatus] ?? appointment.paymentStatus}</td>
               <td>
@@ -186,7 +187,7 @@ export function StaffQueueBoardPage() {
                 )}
               </td>
               <td>{appointment.status !== 'CANCELLED' && <button className="button button--small button--outline" disabled={busyId === appointment.id} type="button" onClick={() => setCancelTarget(appointment)}><CalendarX2 size={14} /> ยกเลิก</button>}</td>
-            </tr>) : <tr><td colSpan={9}>ยังไม่มีผู้จองในสล็อตนี้</td></tr>}
+            </tr>) : <tr><td colSpan={10}>ยังไม่มีผู้จองในสล็อตนี้</td></tr>}
           </tbody>
         </table>
       </div>
